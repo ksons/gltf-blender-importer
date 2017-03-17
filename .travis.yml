@@ -1,0 +1,9 @@
+language: python
+
+install:
+  - sudo add-apt-repository -y ppa:irie/blender
+  - sudo apt-get update
+  - sudo apt-get install -y blender
+
+script:
+  blender --version
