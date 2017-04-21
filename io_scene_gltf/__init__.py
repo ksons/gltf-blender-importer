@@ -65,6 +65,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             fmt = "<f"
         elif component_type == 5123:
             fmt = "<H"
+        elif component_type == 5125:
+            fmt = "<I"
         else:
             raise ValueError("Unknown component type: %s" % component_type)
 
