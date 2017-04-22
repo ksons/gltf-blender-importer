@@ -6,4 +6,5 @@ install:
   - sudo apt-get install -y blender
 
 script:
-  blender --background -b test/data/renderScene.blend
+  blender --background -b test/data/renderScene.blend -render-output "output.png" \
+          --engine CYCLES 
