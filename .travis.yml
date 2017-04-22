@@ -8,3 +8,9 @@ install:
 script:
   blender --background -b test/data/renderScene.blend -render-output "output.png" \
           --engine CYCLES 
+
+deploy:
+  provider: pages
+  skip_cleanup: true
+  github_token: $GITHUB_TOKEN 
+  local_dir: ouput
