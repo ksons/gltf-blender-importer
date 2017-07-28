@@ -55,7 +55,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     def get_buffer_view(self, idx):
         buffer_view = self.root['bufferViews'][idx]
         buffer = self.get_buffer(buffer_view["buffer"])
-        byte_offset = buffer_view["byteOffset"]
+        byte_offset = buffer_view.get("byteOffset", 0)
         byte_length = buffer_view["byteLength"]
         result = buffer[byte_offset:byte_offset + byte_length]
         stride = buffer_view.get('byteStride', None)
