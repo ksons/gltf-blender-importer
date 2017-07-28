@@ -108,7 +108,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def create_material(self, idx):
         material = self.root['materials'][idx]
-        material_name = material['name']
+        material_name = material.get('name', 'Material')
 
         if material_name in self.materials:
             return self.materials[material_name]
@@ -223,8 +223,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def create_mesh(self, node, mesh):
 
-        me = bpy.data.meshes.new(mesh['name'])
-        ob = bpy.data.objects.new(node['name'], me)
+        me = bpy.data.meshes.new(mesh.get('name', 'Mesh'))
+        ob = bpy.data.objects.new(node.get('name', 'Node'), me)
 
         self.create_translation(ob, node)
 
@@ -261,7 +261,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if 'mesh' in node:
             ob = self.create_mesh(node, self.root['meshes'][node['mesh']])
         else:
-            ob = bpy.data.objects.new(node['name'], None)
+            ob = bpy.data.objects.new(node.get('name', 'Node'), None)
             self.create_translation(ob, node)
 
         ob.parent = parent
