@@ -65,6 +65,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     def get_accessor(self, idx):
         accessor = self.root['accessors'][idx]
 
+        count = accessor['count']
         fmt_char_lut = dict([
             (5120, "b"), # BYTE
             (5121, "B"), # UNSIGNED_BYTE
@@ -73,7 +74,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             (5125, "I"), # UNSIGNED_INT
             (5126, "f")  # FLOAT
         ])
-        fmt_char = fmt_char_lut[accessor["componentType"]]
+        fmt_char = fmt_char_lut[accessor['componentType']]
+        component_size = struct.calcsize(fmt_char)
         num_components_lut = {
             "SCALAR": 1,
             "VEC2": 2,
@@ -83,30 +85,68 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             "MAT3": 9,
             "MAT4": 16
         }
-        num_components = num_components_lut[accessor["type"]]
+        num_components = num_components_lut[accessor['type']]
         fmt = "<" + (fmt_char * num_components)
-        count = accessor['count']
+        default_stride = struct.calcsize(fmt)
 
-        if 'bufferView' not in accessor:
-            if num_components == 1:
-                return [0] * count
-            else:
-                return [tuple([0] * num_components)] * count
-        #TODO sparse
+        # Special layouts for certain formats; see the section about
+        # data alignment in the glTF 2.0 spec.
+        if accessor['type'] == 'MAT2' and component_size == 1:
+            fmt = "<" + \
+                (fmt_char * 2) + "xx" + \
+                (fmt_char * 2)
+            default_stride = 8
+        elif accessor['type'] == 'MAT3' and component_size == 1:
+            fmt = "<" + \
+                (fmt_char * 3) + "x" + \
+                (fmt_char * 3) + "x" + \
+                (fmt_char * 3)
+            default_stride = 12
+        elif accessor['type'] == 'MAT3' and component_size == 2:
+            fmt = "<" + \
+                (fmt_char * 3) + "xx" + \
+                (fmt_char * 3) + "xx" + \
+                (fmt_char * 3)
+            default_stride = 24
 
-        (buf, stride) = self.get_buffer_view(accessor['bufferView'])
-        if not stride:
-            # Tightly packed
-            stride = struct.calcsize(fmt)
+        normalize = None
+        if 'normalized' in accessor and accessor['normalized']:
+            # Technically, there are two slightly different normalization
+            # formulas used in OpenGL for signed integers.
+            #   1) max(x/(2^b - 1), -1)
+            #   2) (2x + 1)/(2^b - 1)
+            # (1) is used by recent OpenGL versions. (2) is used by older
+            # versions, including WebGL (the problem with (2) is it is
+            # never zero). We'll use (2) since it's what WebGL should do.
+            normalize_lut = dict([
+                (5120, lambda x: (2*x + 1) / (2**8 - 1)), # BYTE
+                (5121, lambda x: x / (2*8 - 1)), # UNSIGNED_BYTE
+                (5122, lambda x: (2*x + 1) / (2**16 - 1)), # SHORT
+                (5123, lambda x: x / (2*16 - 1)), # UNSIGNED_SHORT
+                (5125, lambda x: x / (2**32 - 1)), # UNSIGNED_INT
+            ])
+            normalize = normalize_lut[accessor['componentType']]
+
+        if 'bufferView' in accessor:
+            (buf, stride) = self.get_buffer_view(accessor['bufferView'])
+            stride = stride or default_stride
+        else:
+            stride = default_stride
+            buf = [0] * (stride * count)
+
+        if 'sparse' in accessor:
+            #TODO sparse
+            raise Exception("sparse accessors unsupported")
 
         off = accessor.get('byteOffset', 0)
         result = []
         while len(result) < count:
-            attrib = struct.unpack_from(fmt, buf, offset = off)
+            elem = struct.unpack_from(fmt, buf, offset = off)
+            if normalize:
+                elem = tuple([normalize(x) for x in elem])
             if num_components == 1:
-                attrib = attrib[0]
-            #TODO normalize
-            result.append(attrib)
+                elem = elem[0]
+            result.append(elem)
             off += stride
 
         return result
