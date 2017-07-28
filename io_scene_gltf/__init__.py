@@ -58,32 +58,56 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         byte_offset = buffer_view["byteOffset"]
         byte_length = buffer_view["byteLength"]
         result = buffer[byte_offset:byte_offset + byte_length]
+        stride = buffer_view.get('byteStride', None)
         # print("view", len(result))
-        return result
+        return (result, stride)
 
     def get_accessor(self, idx):
         accessor = self.root['accessors'][idx]
-        buffer_view = self.get_buffer_view(accessor['bufferView'])
-        component_type = accessor["componentType"]
-        type_size = accessor["type"]
 
-        if component_type == 5126:
-            fmt = "<f"
-        elif component_type == 5123:
-            fmt = "<H"
-        elif component_type == 5125:
-            fmt = "<I"
-        else:
-            raise ValueError("Unknown component type: %s" % component_type)
+        fmt_char_lut = dict([
+            (5120, "b"), # BYTE
+            (5121, "B"), # UNSIGNED_BYTE
+            (5122, "h"), # SHORT
+            (5123, "H"), # UNSIGNED_SHORT
+            (5125, "I"), # UNSIGNED_INT
+            (5126, "f")  # FLOAT
+        ])
+        fmt_char = fmt_char_lut[accessor["componentType"]]
+        num_components_lut = {
+            "SCALAR": 1,
+            "VEC2": 2,
+            "VEC3": 3,
+            "VEC4": 4,
+            "MAT2": 4,
+            "MAT3": 9,
+            "MAT4": 16
+        }
+        num_components = num_components_lut[accessor["type"]]
+        fmt = "<" + (fmt_char * num_components)
+        count = accessor['count']
 
-        values = [i[0] for i in struct.iter_unpack(fmt, buffer_view)]
+        if 'bufferView' not in accessor:
+            if num_components == 1:
+                return [0] * count
+            else:
+                return [tuple([0] * num_components)] * count
+        #TODO sparse
 
-        result = values
+        (buf, stride) = self.get_buffer_view(accessor['bufferView'])
+        if not stride:
+            # Tightly packed
+            stride = struct.calcsize(fmt)
 
-        if type_size == "VEC3":
-            result = [Vector(values[i:i+3]) for i in range(0, len(values), 3)]
-        elif type_size == "VEC2":
-            result = [tuple(values[i:i+2]) for i in range(0, len(values), 2)]
+        off = accessor.get('byteOffset', 0)
+        result = []
+        while len(result) < count:
+            attrib = struct.unpack_from(fmt, buf, offset = off)
+            if num_components == 1:
+                attrib = attrib[0]
+            #TODO normalize
+            result.append(attrib)
+            off += stride
 
         return result
 
@@ -238,6 +262,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         positions = self.get_accessor(attributes['POSITION'])
 
         me.from_pydata(positions, [], faces)
+        me.validate()
 
         for polygon in me.polygons:
             polygon.use_smooth = True
