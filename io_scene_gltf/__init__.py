@@ -1,3 +1,4 @@
+import base64
 import bpy
 import json
 import os
@@ -32,17 +33,22 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     def get_buffer(self, idx):
         buffer = self.root['buffers'][idx]
         buffer_uri = buffer['uri']
+
+        is_data_uri = buffer_uri[:37] == "data:application/octet-stream;base64,"
+        if is_data_uri:
+            return base64.b64decode(buffer_uri[37:])
+
         buffer_location = os.path.join(self.base_path, buffer_uri)
 
-        if buffer_location in self.buffers:
-            return self.buffers[buffer_location]
+        if buffer_location in self.file_cache:
+            return self.file_cache[buffer_location]
 
-        print("Loading buffer", buffer_location)
+        print("Loading file", buffer_location)
         fp = open(buffer_location, "rb")
         bytes_read = fp.read()
         fp.close()
 
-        self.buffers[buffer_location] = bytes_read
+        self.file_cache[buffer_location] = bytes_read
         # print(len(bytes_read), buffer)
         return bytes_read
 
@@ -85,10 +91,17 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         texture = self.root['textures'][idx]
         source = self.root['images'][texture['source']]
         uri = source['uri']
-        image_location = os.path.join(self.base_path, uri)
 
         tex_image = tree.nodes.new("ShaderNodeTexImage")
-        tex_image.image = load_image(image_location)
+
+        is_data_uri = uri[:5] == "data:"
+        if is_data_uri:
+            #TODO how do you load an image from memory?
+            pass
+        else:
+            image_location = os.path.join(self.base_path, uri)
+            tex_image.image = load_image(image_location)
+
         tex_image.label = name
 
         return tex_image
@@ -264,7 +277,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         filename = self.filepath
         self.base_path = os.path.dirname(filename)
         self.materials = {}
-        self.buffers = {}
+        self.file_cache = {}
 
         fp = open(filename, "r")
         self.root = root = json.load(fp)
