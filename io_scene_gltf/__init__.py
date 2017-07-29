@@ -26,12 +26,16 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     filename_ext = ".gltf"
     filter_glob = StringProperty(
-        default="*.gltf",
+        default="*.gltf;*.glb",
         options={'HIDDEN'},
     )
 
     def get_buffer(self, idx):
         buffer = self.root['buffers'][idx]
+
+        if self.glb_buffer and idx == 0 and 'uri' not in buffer:
+            return self.glb_buffer
+
         buffer_uri = buffer['uri']
 
         is_data_uri = buffer_uri[:37] == "data:application/octet-stream;base64,"
@@ -154,19 +158,23 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     def create_texture(self, idx, name, tree):
         texture = self.root['textures'][idx]
         source = self.root['images'][texture['source']]
-        uri = source['uri']
 
         tex_image = tree.nodes.new("ShaderNodeTexImage")
 
-        is_data_uri = uri[:5] == "data:"
-        if is_data_uri:
-            #TODO how do you load an image from memory?
-            pass
-        else:
-            image_location = os.path.join(self.base_path, uri)
-            tex_image.image = load_image(image_location)
+        if 'uri' in source:
+            uri = source['uri']
+            is_data_uri = uri[:5] == "data:"
+            if is_data_uri:
+                #TODO how do you load an image from memory?
+                pass
+            else:
+                image_location = os.path.join(self.base_path, uri)
+                tex_image.image = load_image(image_location)
 
-        tex_image.label = name
+            tex_image.label = name
+        else:
+            #TODO load image from buffer view
+            pass
 
         return tex_image
 
@@ -344,26 +352,53 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.materials = {}
         self.file_cache = {}
 
-        fp = open(filename, "r")
-        self.root = root = json.load(fp)
+        fp = open(filename, "rb")
+        contents = fp.read()
         fp.close()
+
+        # Use magic number to detect GLB files.
+        is_glb = contents[:4] == b"glTF"
+
+        if is_glb:
+            print("Detected GLB file")
+
+            version = struct.unpack_from("<I", contents, offset = 4)[0]
+            if version != 2:
+                raise Exception("GLB: version not supported: %d" % version)
+
+            json_length = struct.unpack_from("<I", contents, offset = 12)[0]
+            end_of_json = 20 + json_length
+            self.root = json.loads(contents[20 : end_of_json])
+
+            # Check for BIN chunk
+            if len(contents) > end_of_json:
+                bin_length = struct.unpack_from("<I", contents, offset = end_of_json)[0]
+                end_of_bin = end_of_json + 8 + bin_length
+                self.glb_buffer = contents[end_of_json + 8 : end_of_bin]
+            else:
+                self.glb_buffer = None
+        else:
+            self.root = json.loads(contents)
+            self.glb_buffer = None
 
         scn = bpy.context.scene
         scn.render.engine = 'CYCLES'
         scn.world.use_nodes = True
 
-        sceneIdx = root['scene']
-        nodes = root['nodes']
+        sceneIdx = self.root['scene']
+        nodes = self.root['nodes']
 
-        scene = root['scenes'][sceneIdx]
+        scene = self.root['scenes'][sceneIdx]
 
-        [self.create_group(nodes[idx], None) for idx in scene['nodes']]
+        for idx in scene['nodes']:
+            self.create_group(nodes[idx], None)
+
         return {'FINISHED'}
 
 
 # Add to a menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportGLTF.bl_idname, text="glTF JSON (.gltf)")
+    self.layout.operator(ImportGLTF.bl_idname, text="glTF JSON (.gltf/.glb)")
 
 
 def register():
