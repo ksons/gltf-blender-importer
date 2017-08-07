@@ -3,10 +3,13 @@ import bpy
 import json
 import os
 import struct
+
 from mathutils import Vector
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 from bpy_extras.image_utils import load_image
+
+from io_scene_gltf.mesh import create_mesh
 
 bl_info = {
     "name": "glTF 2.0 Importer",
@@ -178,7 +181,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         return tex_image
 
-    def create_material(self, idx):
+    def get_material(self, idx):
         material = self.root['materials'][idx]
         material_name = material.get('name', 'Material')
 
@@ -287,55 +290,34 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         return mat
 
+    def get_default_material(self):
+        #TODO implement default material
+        if not self.default_material:
+            self.default_material = bpy.data.materials.new('DefaultMaterial')
+        return self.default_material
+
     def create_translation(self, obj, node):
         if 'translation' in node:
             obj.location = Vector(node['translation'])
         if 'scale' in node:
             obj.scale = Vector(node['scale'])
 
-    def create_mesh(self, node, mesh):
-
-        me = bpy.data.meshes.new(mesh.get('name', 'Mesh'))
-        ob = bpy.data.objects.new(node.get('name', 'Node'), me)
-
-        self.create_translation(ob, node)
-
-        primitives = mesh['primitives'][0]
-        material = self.create_material(primitives['material'])
-        me.materials.append(material)
-        indices = self.get_accessor(primitives['indices'])
-        faces = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
-
-        attributes = primitives['attributes']
-        positions = self.get_accessor(attributes['POSITION'])
-
-        me.from_pydata(positions, [], faces)
-        me.validate()
-
-        for polygon in me.polygons:
-            polygon.use_smooth = True
-
-        normals = self.get_accessor(attributes['NORMAL'])
-        for i, vertex in enumerate(me.vertices):
-            vertex.normal = normals[i]
-
-        if 'TEXCOORD_0' in attributes:
-            uvs = self.get_accessor(attributes['TEXCOORD_0'])
-            me.uv_textures.new("TEXCOORD_0")
-            for i, uv_loop in enumerate(me.uv_layers[0].data):
-                uv = uvs[indices[i]]
-                me.uv_layers[0].data[i].uv = (uv[0], -uv[1])
-
-        me.update()
-        return ob
+    def get_mesh(self, idx):
+        if idx not in self.meshes:
+            self.meshes[idx] = create_mesh(self, idx)
+        return self.meshes[idx]
 
     def create_group(self, node, parent):
-        # print(node)
+        name = node.get('name', 'Node')
+        ob = bpy.data.objects.new(name, None)
+
         if 'mesh' in node:
-            ob = self.create_mesh(node, self.root['meshes'][node['mesh']])
-        else:
-            ob = bpy.data.objects.new(node.get('name', 'Node'), None)
-            self.create_translation(ob, node)
+            mesh_ob = bpy.data.objects.new(name + '.mesh', self.get_mesh(node['mesh']))
+            mesh_ob.parent = ob
+            bpy.context.scene.objects.link(mesh_ob)
+        #TODO handle skin/camera
+
+        self.create_translation(ob, node)
 
         ob.parent = parent
         bpy.context.scene.objects.link(ob)
@@ -350,6 +332,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         filename = self.filepath
         self.base_path = os.path.dirname(filename)
         self.materials = {}
+        self.default_material = None
+        self.meshes = {}
         self.file_cache = {}
 
         fp = open(filename, "rb")
