@@ -183,7 +183,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def get_material(self, idx):
         material = self.root['materials'][idx]
-        material_name = material.get('name', 'Material')
+        material_name = material.get('name', 'materials[%d]' % idx)
 
         if material_name in self.materials:
             return self.materials[material_name]
@@ -307,8 +307,9 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.meshes[idx] = create_mesh(self, idx)
         return self.meshes[idx]
 
-    def create_group(self, node, parent):
-        name = node.get('name', 'Node')
+    def create_object(self, idx, parent):
+        node = self.root['nodes'][idx]
+        name = node.get('name', 'nodes[%d]' % idx)
         ob = bpy.data.objects.new(name, None)
 
         if 'mesh' in node:
@@ -326,7 +327,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if 'children' in node:
             children = node['children']
             for idx in children:
-                self.create_group(self.root['nodes'][idx], ob)
+                self.create_object(idx, ob)
 
     def execute(self, context):
         filename = self.filepath
@@ -374,8 +375,10 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         scene = self.root['scenes'][sceneIdx]
 
+        #TODO doesn't this create multiple copies of a node since
+        # create_object also creates nodes for its children?
         for idx in scene['nodes']:
-            self.create_group(nodes[idx], None)
+            self.create_object(idx, None)
 
         return {'FINISHED'}
 
