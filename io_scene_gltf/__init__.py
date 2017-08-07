@@ -307,7 +307,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.meshes[idx] = create_mesh(self, idx)
         return self.meshes[idx]
 
-    def create_object(self, idx, parent):
+    def create_object(self, idx, parent, scene):
         node = self.root['nodes'][idx]
         name = node.get('name', 'nodes[%d]' % idx)
         ob = bpy.data.objects.new(name, None)
@@ -315,19 +315,36 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if 'mesh' in node:
             mesh_ob = bpy.data.objects.new(name + '.mesh', self.get_mesh(node['mesh']))
             mesh_ob.parent = ob
-            bpy.context.scene.objects.link(mesh_ob)
+            scene.objects.link(mesh_ob)
         #TODO handle skin/camera
 
         self.create_translation(ob, node)
 
         ob.parent = parent
         bpy.context.scene.objects.link(ob)
-        bpy.context.scene.update()
+        scene.update()
 
         if 'children' in node:
             children = node['children']
             for idx in children:
-                self.create_object(idx, ob)
+                self.create_object(idx, ob, scene)
+
+    def create_scene(self, idx):
+        scene = self.root['scenes'][idx]
+        name = scene.get('name', 'scene[%d]' % idx)
+
+        bpy.ops.scene.new(type = 'NEW')
+        scn = bpy.context.scene
+        scn.name = name
+        scn.render.engine = 'CYCLES'
+        # scn.world.use_nodes = True
+
+        for root_idx in scene.get('nodes', []):
+            self.create_object(root_idx, None, scn)
+
+        scn.update()
+
+        self.scenes[idx] = scn
 
     def execute(self, context):
         filename = self.filepath
@@ -335,6 +352,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.materials = {}
         self.default_material = None
         self.meshes = {}
+        self.scenes = {}
         self.file_cache = {}
 
         fp = open(filename, "rb")
@@ -366,19 +384,12 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.root = json.loads(contents)
             self.glb_buffer = None
 
-        scn = bpy.context.scene
-        scn.render.engine = 'CYCLES'
-        scn.world.use_nodes = True
+        if 'scenes' in self.root:
+            for scene_idx in range(0, len(self.root['scenes'])):
+                self.create_scene(scene_idx)
 
-        sceneIdx = self.root['scene']
-        nodes = self.root['nodes']
-
-        scene = self.root['scenes'][sceneIdx]
-
-        #TODO doesn't this create multiple copies of a node since
-        # create_object also creates nodes for its children?
-        for idx in scene['nodes']:
-            self.create_object(idx, None)
+        if 'scene' in self.root:
+            bpy.context.screen.scene = self.scenes[self.root['scene']]
 
         return {'FINISHED'}
 
