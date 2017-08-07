@@ -1,30 +1,40 @@
+import bmesh
 import bpy
 
-def create_mesh(importer, idx):
-    mesh = importer.root['meshes'][idx]
-    name = mesh.get('name', 'meshes[%d]' % idx)
-    me = bpy.data.meshes.new(name)
-
-    #TODO handle multiple primitives
-    primitive = mesh['primitives'][0]
-    if 'material' in primitive:
-        material = importer.get_material(primitive['material'])
-    else:
-        material = importer.get_default_material()
-    me.materials.append(material)
-    #TODO handle no indices
-    indices = importer.get_accessor(primitive['indices'])
-    #TODO handle primitive mode != 4
-    faces = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
-
+def primitive_to_mesh(importer, primitive, material_index):
+    mode = primitive.get('mode', 4)
     attributes = primitive['attributes']
-    positions = importer.get_accessor(attributes['POSITION'])
+    if 'indices' in primitive:
+        indices = importer.get_accessor(primitive['indices'])
+    else:
+        indices = None
 
-    me.from_pydata(positions, [], faces)
-    me.validate(verbose = True)
+    verts = importer.get_accessor(attributes['POSITION'])
+    edges = []
+    faces = []
+
+    if mode == 0:
+        # POINTS
+        pass
+    elif mode == 1:
+        #LINES
+        if not indices:
+            indices = range(0, len(verts))
+        edges = [tuple(indices[i:i+2]) for i in range(0, len(indices), 2)]
+    elif mode == 4:
+        #TRIANGLES
+        if not indices:
+            indices = range(0, len(verts))
+        faces = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
+    else:
+        raise Exception("primitive mode unimplemented: %d" % mode)
+
+    me = bpy.data.meshes.new('>>>TEMP<<<')
+    me.from_pydata(verts, edges, faces)
+    me.validate()
 
     for polygon in me.polygons:
-        polygon.use_smooth = True
+        polygon.material_index = material_index
 
     if 'NORMAL' in attributes:
         normals = importer.get_accessor(attributes['NORMAL'])
@@ -35,8 +45,37 @@ def create_mesh(importer, idx):
         uvs = importer.get_accessor(attributes['TEXCOORD_0'])
         me.uv_textures.new("TEXCOORD_0")
         for i, uv_loop in enumerate(me.uv_layers[0].data):
-            uv = uvs[indices[i]]
-            me.uv_layers[0].data[i].uv = (uv[0], -uv[1])
+            uv = uvs[indices[i]] #TODO what about when indices == None?
+            uv_loop.uv = (uv[0], -uv[1])
 
     me.update()
+
+    return me
+
+
+def create_mesh(importer, idx):
+    mesh = importer.root['meshes'][idx]
+    name = mesh.get('name', 'meshes[%d]' % idx)
+    me = bpy.data.meshes.new(name)
+
+    bme = bmesh.new()
+    for i, primitive in enumerate(mesh['primitives']):
+        tmp_mesh = primitive_to_mesh(importer, primitive, i)
+        bme.from_mesh(tmp_mesh)
+        bpy.data.meshes.remove(tmp_mesh)
+    bme.to_mesh(me)
+    bme.free()
+
+    for primitive in mesh['primitives']:
+        if 'material' in primitive:
+            material = importer.get_material(primitive['material'])
+        else:
+            material = importer.get_default_material()
+        me.materials.append(material)
+
+    for polygon in me.polygons:
+        polygon.use_smooth = True
+
+    me.update()
+
     return me
