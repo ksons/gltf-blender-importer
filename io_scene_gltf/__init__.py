@@ -4,6 +4,8 @@ import json
 import os
 import struct
 
+from mathutils import Matrix
+from mathutils import Quaternion
 from mathutils import Vector
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
@@ -22,6 +24,15 @@ bl_info = {
     "category": "Import-Export"
 }
 
+def convert_matrix(m):
+    """Convert glTF matrix to Blender matrix"""
+    result = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
+    result.transpose() # column-major to row-major
+    return result
+
+def convert_quaternion(q):
+    """Convert glTF quaternion to Blender quaternion"""
+    return Quaternion([q[3], q[0], q[1], q[2]]) # xyzw -> wxyz
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
     bl_idname = "import_scene.gltf"
@@ -296,11 +307,26 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.default_material = bpy.data.materials.new('DefaultMaterial')
         return self.default_material
 
-    def create_translation(self, obj, node):
-        if 'translation' in node:
-            obj.location = Vector(node['translation'])
-        if 'scale' in node:
-            obj.scale = Vector(node['scale'])
+    def set_transform(self, obj, node):
+        if 'matrix' in node:
+            obj.matrix_local = convert_matrix(node['matrix'])
+        else:
+            mat = Matrix()
+            if 'scale' in node:
+                s = node['scale']
+                mat = Matrix([
+                    [s[0], 0, 0, 0],
+                    [0, s[1], 0, 0],
+                    [0, 0, s[2], 0],
+                    [0, 0, 0, 1]
+                ])
+            if 'rotation' in node:
+                q = convert_quaternion(node['rotation'])
+                mat = q.to_matrix().to_4x4() * mat
+            if 'translation' in node:
+                t = Vector(node['translation'])
+                mat = Matrix.Translation(t) * mat
+            obj.matrix_local = mat
 
     def get_mesh(self, idx):
         if idx not in self.meshes:
@@ -318,7 +344,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             scene.objects.link(mesh_ob)
         #TODO handle skin/camera
 
-        self.create_translation(ob, node)
+        self.set_transform(ob, node)
 
         ob.parent = parent
         bpy.context.scene.objects.link(ob)
