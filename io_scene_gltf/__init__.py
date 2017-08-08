@@ -333,16 +333,34 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.meshes[idx] = create_mesh(self, idx)
         return self.meshes[idx]
 
+    def get_camera(self, idx):
+        if idx not in self.cameras:
+            #TODO actually handle cameras
+            camera = self.root['cameras'][idx]
+            name = camera.get('name', 'cameras[%d]' % idx)
+            self.cameras[idx] = bpy.data.cameras.new(name)
+        return self.cameras[idx]
+
     def create_object(self, idx, parent, scene):
         node = self.root['nodes'][idx]
         name = node.get('name', 'nodes[%d]' % idx)
         ob = bpy.data.objects.new(name, None)
 
         if 'mesh' in node:
-            mesh_ob = bpy.data.objects.new(name + '.mesh', self.get_mesh(node['mesh']))
+            mesh_ob = bpy.data.objects.new(
+                name + '.mesh',
+                self.get_mesh(node['mesh'])
+            )
             mesh_ob.parent = ob
             scene.objects.link(mesh_ob)
-        #TODO handle skin/camera
+        if 'camera' in node:
+            camera_ob = bpy.data.objects.new(
+                name + '.camera',
+                self.get_camera(node['camera'])
+            )
+            camera_ob.parent = ob
+            scene.objects.link(camera_ob)
+        #TODO handle skin
 
         self.set_transform(ob, node)
 
@@ -378,6 +396,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.materials = {}
         self.default_material = None
         self.meshes = {}
+        self.cameras = {}
         self.scenes = {}
         self.file_cache = {}
 
