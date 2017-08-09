@@ -1,7 +1,26 @@
+import base64
 import os
+import tempfile
 
 import bpy
 from bpy_extras.image_utils import load_image
+
+
+def do_with_temp_file(contents, func):
+    """Call func with the path to a temp file containing contents.
+
+    The temp file will be deleted before this function returns.
+    """
+    path = None
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False)
+        path = tmp.name
+        tmp.write(contents)
+        tmp.close() # Have to close so func can open it
+        return func(path)
+    finally:
+        if path:
+            os.remove(path)
 
 
 def create_texture(op, idx, name, tree):
@@ -10,20 +29,35 @@ def create_texture(op, idx, name, tree):
 
     tex_image = tree.nodes.new("ShaderNodeTexImage")
 
+    # Don't know how to load an image from memory, so if the data is
+    # in a buffer or data URI, we'll write it to a temp file and use
+    # this to load it from the temp file's path.
+    # Yes, this is kind of a hack :)
+    def load_from_temp(path):
+        tex_image.image = load_image(path)
+        # Need to pack the image into the .blend file or it will go
+        # away as soon as the temp file is deleted.
+        tex_image.image.pack() #TODO decide on tradeoff for using as_png
+
+
     if 'uri' in source:
         uri = source['uri']
-        is_data_uri = uri[:5] == "data:"
+        is_data_uri = uri[:5] == 'data:'
         if is_data_uri:
-            #TODO how do you load an image from memory?
-            pass
+            found_at = uri.find(';base64,')
+            if found_at == -1:
+                print("Couldn't read data URI; not base64?")
+            else:
+                buf = base64.b64decode(uri[found_at + 8:])
+                do_with_temp_file(buf, load_from_temp)
         else:
             image_location = os.path.join(op.base_path, uri)
             tex_image.image = load_image(image_location)
 
         tex_image.label = name
     else:
-        #TODO load image from buffer view
-        pass
+        buf, _stride = op.get_buffer_view(source['bufferView'])
+        do_with_temp_file(buf, load_from_temp)
 
     return tex_image
 
