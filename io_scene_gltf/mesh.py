@@ -1,15 +1,15 @@
 import bmesh
 import bpy
 
-def primitive_to_mesh(importer, primitive, material_index):
+def primitive_to_mesh(op, primitive, material_index):
     mode = primitive.get('mode', 4)
     attributes = primitive['attributes']
     if 'indices' in primitive:
-        indices = importer.get_accessor(primitive['indices'])
+        indices = op.get_accessor(primitive['indices'])
     else:
         indices = None
 
-    verts = importer.get_accessor(attributes['POSITION'])
+    verts = op.get_accessor(attributes['POSITION'])
     edges = []
     faces = []
 
@@ -37,12 +37,12 @@ def primitive_to_mesh(importer, primitive, material_index):
         polygon.material_index = material_index
 
     if 'NORMAL' in attributes:
-        normals = importer.get_accessor(attributes['NORMAL'])
+        normals = op.get_accessor(attributes['NORMAL'])
         for i, vertex in enumerate(me.vertices):
             vertex.normal = normals[i]
 
     if 'TEXCOORD_0' in attributes:
-        uvs = importer.get_accessor(attributes['TEXCOORD_0'])
+        uvs = op.get_accessor(attributes['TEXCOORD_0'])
         me.uv_textures.new("TEXCOORD_0")
         for i, uv_loop in enumerate(me.uv_layers[0].data):
             uv = uvs[indices[i]] #TODO what about when indices == None?
@@ -53,14 +53,14 @@ def primitive_to_mesh(importer, primitive, material_index):
     return me
 
 
-def create_mesh(importer, idx):
-    mesh = importer.root['meshes'][idx]
+def create_mesh(op, idx):
+    mesh = op.root['meshes'][idx]
     name = mesh.get('name', 'meshes[%d]' % idx)
     me = bpy.data.meshes.new(name)
 
     bme = bmesh.new()
     for i, primitive in enumerate(mesh['primitives']):
-        tmp_mesh = primitive_to_mesh(importer, primitive, i)
+        tmp_mesh = primitive_to_mesh(op, primitive, i)
         bme.from_mesh(tmp_mesh)
         bpy.data.meshes.remove(tmp_mesh)
     bme.to_mesh(me)
@@ -68,9 +68,9 @@ def create_mesh(importer, idx):
 
     for primitive in mesh['primitives']:
         if 'material' in primitive:
-            material = importer.get_material(primitive['material'])
+            material = op.get_material(primitive['material'])
         else:
-            material = importer.get_default_material()
+            material = op.get_default_material()
         me.materials.append(material)
 
     for polygon in me.polygons:
