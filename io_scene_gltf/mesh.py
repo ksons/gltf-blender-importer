@@ -41,12 +41,19 @@ def primitive_to_mesh(op, primitive, material_index):
         for i, vertex in enumerate(me.vertices):
             vertex.normal = normals[i]
 
+    # bmesh seems to drop texcoords if we merge one mesh with them and one
+    # without, so make sure we always have texcoords.
+    #TODO have the caller tell us if none of the primitives have texcoords
+    # so we can skip this if possible.
+    me.uv_textures.new('TEXCOORD_0')
+
     if 'TEXCOORD_0' in attributes:
         uvs = op.get_accessor(attributes['TEXCOORD_0'])
-        me.uv_textures.new("TEXCOORD_0")
-        for i, uv_loop in enumerate(me.uv_layers[0].data):
-            uv = uvs[indices[i]] #TODO what about when indices == None?
-            uv_loop.uv = (uv[0], -uv[1])
+        uv_layer = me.uv_layers[0].data
+        for polygon in me.polygons:
+            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
+                uv = uvs[vert_idx]
+                uv_layer[loop_idx].uv = (uv[0], -uv[1])
 
     me.update()
 
