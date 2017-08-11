@@ -1,7 +1,19 @@
+from functools import reduce
+
 import bmesh
 import bpy
 
-def primitive_to_mesh(op, primitive, material_index):
+def primitive_to_mesh(op, primitive, all_attributes, material_index):
+    """Convert a glTF primitive object to a Blender mesh.
+
+    If you have one mesh that has some layer (texcoords, say) and
+    another that doesn't, when you merge them with bmesh it seems to
+    drop the layer. To prevent this, the all_attributes set contains
+    the union of all the attributes from the primitives for the (glTF)
+    mesh that this primitive is contained in so we can always create
+    enough layers.
+
+    """
     mode = primitive.get('mode', 4)
     attributes = primitive['attributes']
     if 'indices' in primitive:
@@ -41,19 +53,29 @@ def primitive_to_mesh(op, primitive, material_index):
         for i, vertex in enumerate(me.vertices):
             vertex.normal = normals[i]
 
-    # bmesh seems to drop texcoords if we merge one mesh with them and one
-    # without, so make sure we always have texcoords.
-    #TODO have the caller tell us if none of the primitives have texcoords
-    # so we can skip this if possible.
-    me.uv_textures.new('TEXCOORD_0')
+    #TODO test this!
+    if 'COLOR_0' in all_attributes:
+        me.vertex_colors.new('COLOR_0')
+    if 'COLOR_0' in all_attributes:
+        colors = op.get_accessor(attributes['COLOR_0'])
+        color_layer = me.vertex_colors[0].data
+        for polygon in me.polygons:
+            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
+                color_layer[loop_idx].color = colors[vert_idx]
 
-    if 'TEXCOORD_0' in attributes:
-        uvs = op.get_accessor(attributes['TEXCOORD_0'])
-        uv_layer = me.uv_layers[0].data
+    def assign_texcoords(uvs, uv_layer):
         for polygon in me.polygons:
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
                 uv = uvs[vert_idx]
                 uv_layer[loop_idx].uv = (uv[0], -uv[1])
+    if 'TEXCOORD_0' in all_attributes or 'TEXCOORD_1' in all_attributes:
+        me.uv_textures.new('TEXCOORD_0')
+    if 'TEXCOORD_1' in all_attributes:
+        me.uv_textures.new('TEXCOORD_1')
+    if 'TEXCOORD_0' in attributes:
+        assign_texcoords(op.get_accessor(attributes['TEXCOORD_0']), me.uv_layers[0].data)
+    if 'TEXCOORD_1' in attributes:
+        assign_texcoords(op.get_accessor(attributes['TEXCOORD_1']), me.uv_layers[1].data)
 
     me.update()
 
@@ -63,11 +85,16 @@ def primitive_to_mesh(op, primitive, material_index):
 def create_mesh(op, idx):
     mesh = op.root['meshes'][idx]
     name = mesh.get('name', 'meshes[%d]' % idx)
+    primitives = mesh['primitives']
     me = bpy.data.meshes.new(name)
+
+    # Find the union of the attributes used by each primitive.
+    attributes = (set(primitive['attributes'].keys()) for primitive in primitives)
+    all_attributes = reduce(lambda x,y: x.union(y), attributes)
 
     bme = bmesh.new()
     for i, primitive in enumerate(mesh['primitives']):
-        tmp_mesh = primitive_to_mesh(op, primitive, i)
+        tmp_mesh = primitive_to_mesh(op, primitive, all_attributes, i)
         bme.from_mesh(tmp_mesh)
         bpy.data.meshes.remove(tmp_mesh)
     bme.to_mesh(me)
