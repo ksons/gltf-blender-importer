@@ -1,26 +1,34 @@
 ## Testing
 
+
 ### Instructions
 
-1. Ensure the glTF Importer is installed and enabled in Blender.
-
-2. Get the glTF samples by initializing git submodules
+1. Get the glTF sample models by initializing git submodules
 
     ````
-    git submodule update --init --recursive
+    $ git submodule update --init --recursive
     ````
 
-3. Run the tests with
+2. Run the tests with
 
     ````
-    blender -b --python test.py
+    $ python run_tests.py
     ````
 
------
 
-The glTF-Sample-Models/2.0/ directory will be recursively searched for
-.gltf and .glb files and each will be loaded. When the tests are finished
-the number of files successfully loaded and any files that failed to load
-will be printed to stdout.
+### About
 
-"Success" means that the import completed without raising an exception.
+The [glTF Sample Models](https://github.com/KhronosGroup/glTF-Sample-Models)
+are used for automated testing of the importer.
+
+When you run the tests, the glTF-Sample-Models/2.0/ directory is recursively
+searched to find .gltf and .glb files and then Blender tries to import
+each one. If the importer doesn't raise an exception, this counts as the
+test having "passed" :)
+
+The results of the tests will be printed out: you should get a green "ok" if
+everything's good. They are also written to a JSON file in this directory
+called report.json. You can use this file or the exit code of run_tests.py
+to determine if the tests passed in a script.
+
+Call `python run_tests.py -h` for more help.

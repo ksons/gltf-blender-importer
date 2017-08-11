@@ -1,3 +1,8 @@
+# Automated test results
+test/report.json
+
+## Generic ignores below here
+################################
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
