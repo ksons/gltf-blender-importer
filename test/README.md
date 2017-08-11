@@ -3,15 +3,13 @@
 
 ### Instructions
 
-1. Ensure the glTF Importer is installed and enabled in Blender.
-
-2. Get the glTF sample models by initializing git submodules
+1. Get the glTF sample models by initializing git submodules
 
     ````
     $ git submodule update --init --recursive
     ````
 
-3. Run the tests with
+2. Run the tests with
 
     ````
     $ python run_tests.py

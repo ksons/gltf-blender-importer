@@ -33,7 +33,7 @@ def run_tests():
     for filename in files:
         print("\nTrying ", filename, "...")
 
-        bpy.ops.wm.read_homefile()
+        bpy.ops.wm.read_factory_settings()
         try:
             start_time = timer()
             bpy.ops.import_scene.gltf(filepath=filename)
@@ -59,21 +59,8 @@ def run_tests():
     return report
 
 
-def generate_report():
-    # Check for glTF importer
-    try:
-        bpy.ops.import_scene.gltf.get_instance()
-    except:
-        report = {
-            'error': "Importer not found!"
-        }
-        return report
-
-    return run_tests()
-
-
 def main():
-    report = generate_report()
+    report = run_tests()
     with open(report_path, "w+") as report_file:
         json.dump(report, report_file, indent=4)
 

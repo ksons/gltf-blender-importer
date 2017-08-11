@@ -40,11 +40,42 @@ def generate_report():
         print("Tests did not run")
         sys.exit(1)
 
+    # Print Blender version for debugging
+    try:
+        subprocess.run(['blender', '--version'], check=True)
+    except:
+        print("Check that Blender is installed!")
+        raise
 
-    subprocess.run(
-        ['blender', '-b', '--python', test_script],
-        check=True
-    )
+    print()
+
+    # We're going to try to run Blender in a clean-ish environment for
+    # testing. We don't want to use whatever the user has installed for
+    # the glTF importer addon because it might be old, etc; we want to
+    # be sure we're using the current state of ../io_scene_gltf. So
+    # create a new directory to use as scripts/addons/, symlink our
+    # addon into it, and tell Blender to use that.
+    with tempfile.TemporaryDirectory() as scripts_dir:
+        addons_dir = os.path.join(scripts_dir, 'addons')
+        os.mkdir(addons_dir)
+        blender_addon_path = os.path.join(addons_dir, 'io_scene_gltf')
+        os.symlink(src=src_addon_dir, dst=blender_addon_path)
+
+        env = os.environ.copy()
+        env['BLENDER_USER_SCRIPTS'] = scripts_dir
+        #TODO Should we worry about BLENDER_SYSTEM_SCRIPTS, etc?
+
+        subprocess.run(
+            [
+                'blender',
+                '--background', # run UI-less
+                '--factory-startup', # factory settings
+                '--addons', 'io_scene_gltf', # enable the addon
+                '--python', test_script # run the test script
+            ],
+            env=env,
+            check=True
+        )
 
 
 def print_report():
@@ -55,11 +86,6 @@ def print_report():
     """
     with open(report_path) as f:
         report = json.load(f)
-
-    if 'error' in report:
-        print('\nError:', report['error'])
-        print('See README.md for instructions')
-        sys.exit(1)
 
     tests = report['tests']
 
