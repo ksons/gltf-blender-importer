@@ -82,19 +82,12 @@ def create_accessor(op, idx):
 
     normalize = None
     if 'normalized' in accessor and accessor['normalized']:
-        # Technically, there are two slightly different normalization
-        # formulas used in OpenGL for signed integers.
-        #   1) max(x/(2^b - 1), -1)
-        #   2) (2x + 1)/(2^b - 1)
-        # (1) is used by recent OpenGL versions. (2) is used by older
-        # versions, including WebGL (the problem with (2) is it is
-        # never zero). We'll use (2) since it's what WebGL should do.
         normalize_lut = dict([
-            (5120, lambda x: (2*x + 1) / (2**8 - 1)), # BYTE
-            (5121, lambda x: x / (2*8 - 1)), # UNSIGNED_BYTE
-            (5122, lambda x: (2*x + 1) / (2**16 - 1)), # SHORT
-            (5123, lambda x: x / (2*16 - 1)), # UNSIGNED_SHORT
-            (5125, lambda x: x / (2**32 - 1)), # UNSIGNED_INT
+            (5120, lambda x: max(x / (2**7 - 1), -1)), # BYTE
+            (5121, lambda x: x / (2**8 - 1)), # UNSIGNED_BYTE
+            (5122, lambda x: max(x / (2**15 - 1), -1)), # SHORT
+            (5123, lambda x: x / (2**16 - 1)), # UNSIGNED_SHORT
+            (5125, lambda x: x / (2**32 - 1)) # UNSIGNED_INT
         ])
         normalize = normalize_lut[accessor['componentType']]
 
