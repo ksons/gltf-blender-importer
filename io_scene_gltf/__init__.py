@@ -148,6 +148,23 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         self.scenes[idx] = scn
 
+    def check_version(self):
+        def string_to_version(s):
+            try:
+                version = [int(x) for x in s.split('.')]
+            except Exception:
+                version = None
+            if version:
+                return version
+            else:
+                raise Exception('unknown version: %s' % s)
+
+        asset = self.root['asset']
+        version = string_to_version(asset['version'])
+        if version[0] != 2:
+            raise Exception("unsupported version: %s" % version)
+        #TODO handle minVersion
+
     def execute(self, context):
         filename = self.filepath
         self.base_path = os.path.dirname(filename)
@@ -186,6 +203,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         else:
             self.root = json.loads(contents)
             self.glb_buffer = None
+
+        self.check_version()
 
         if 'scenes' in self.root:
             for scene_idx in range(0, len(self.root['scenes'])):
