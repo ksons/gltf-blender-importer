@@ -3,18 +3,15 @@
 
 ### Instructions
 
-1. Get the glTF sample models by initializing git submodules
+Just run
 
-    ````
-    $ git submodule update --init --recursive
-    ````
+````
+$ python run_tests.py
+````
 
-2. Run the tests with
-
-    ````
-    $ python run_tests.py
-    ````
-
+The sample models are stored as a git submodule. The first time you run this,
+it will automatically initialize submodules to get the sample files (if
+needed).
 
 ### About
 
