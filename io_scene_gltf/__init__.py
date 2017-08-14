@@ -22,6 +22,9 @@ bl_info = {
     "category": "Import-Export"
 }
 
+# Supported glTF version: 2.0
+GLTF_VERSION = (2, 0)
+
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
     bl_idname = "import_scene.gltf"
@@ -73,21 +76,35 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
                 node.create_scene(self, scene_idx)
 
     def check_version(self):
-        def string_to_version(s):
+        def str_to_version(s):
             try:
                 version = [int(x) for x in s.split('.')]
             except Exception:
                 version = None
-            if version:
+            if version and len(version) >= 2:
                 return version
             else:
                 raise Exception('unknown version: %s' % s)
 
         asset = self.root['asset']
-        version = string_to_version(asset['version'])
-        if version[0] != 2:
-            raise Exception("unsupported version: %s" % version)
-        #TODO handle minVersion
+
+        if 'minVersion' in asset:
+            min_version = str_to_version(asset['minVersion'])
+            unsupported = (
+                min_version[0] != GLTF_VERSION[0] or
+                min_version[1] > GLTF_VERSION[1]
+            )
+            if unsupported:
+                raise Exception("unsupported minimum version: %s" % min_version)
+        else:
+            version = str_to_version(asset['version'])
+            unsupported = version[0] != GLTF_VERSION[0]
+            if unsupported:
+                raise Exception("unsupported version: %s" % version)
+
+    def check_required_extensions(self):
+        #TODO
+        pass
 
     def execute(self, context):
         filename = self.filepath
@@ -129,6 +146,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.glb_buffer = None
 
         self.check_version()
+        self.check_required_extensions()
 
         self.generate_scenes()
 
