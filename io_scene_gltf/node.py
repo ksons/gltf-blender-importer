@@ -36,40 +36,38 @@ def get_transform(node):
         return mat
 
 
-def create_object(op, idx, parent, scene, armature, node_to_bone_map):
+def create_object(op, idx, scene, armature_ob, node_to_bone_map):
     node = op.root['nodes'][idx]
     name = node.get('name', 'nodes[%d]' % idx)
-    ob = bpy.data.objects.new(name, None)
-    ob.empty_draw_size = 0.2
 
-    con = ob.constraints.new('COPY_TRANSFORMS')
-    con.target = armature
-    con.subtarget = node_to_bone_map[idx]
+    def create(name, data):
+        ob = bpy.data.objects.new(name, data)
+        ob.parent = armature_ob
+
+        con = ob.constraints.new('COPY_TRANSFORMS')
+        con.target = armature_ob
+        con.subtarget = node_to_bone_map[idx]
+
+        ob.parent = armature_ob
+
+        scene.objects.link(ob)
+
+        return ob
 
     if 'mesh' in node:
-        mesh_ob = bpy.data.objects.new(
-            name + '.mesh',
-            op.get_mesh(node['mesh'])
-        )
-        mesh_ob.parent = ob
-        scene.objects.link(mesh_ob)
+        mesh_name = name
+        if 'camera' in node:
+            mesh_name += '.mesh'
+        create(mesh_name, op.get_mesh(node['mesh']))
+
     if 'camera' in node:
-        camera_ob = bpy.data.objects.new(
-            name + '.camera',
-            op.get_camera(node['camera'])
-        )
-        camera_ob.parent = ob
-        scene.objects.link(camera_ob)
+        camera_name = name
+        if 'mesh' in node:
+            camera_name += '.camera'
+        create(camera_name, op.get_camera(node['camera']))
 
-    ob.matrix_local = get_transform(node)
-    ob.parent = parent
-    bpy.context.scene.objects.link(ob)
-    scene.update()
-
-    if 'children' in node:
-        children = node['children']
-        for idx in children:
-            create_object(op, idx, ob, scene, armature, node_to_bone_map)
+    for idx in node.get('children', []):
+        create_object(op, idx, scene, armature_ob, node_to_bone_map)
 
 
 def create_tree(op, root_idx, scene):
@@ -82,6 +80,7 @@ def create_tree(op, root_idx, scene):
         location=(0,0,0))
     ob = bpy.context.object
     ob.name = name
+    ob.show_x_ray = True
     amt = ob.data
     amt.name = name + '.AMT'
 
@@ -115,7 +114,9 @@ def create_tree(op, root_idx, scene):
 
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    create_object(op, root_idx, None, scene, ob, node_to_bone_map)
+    create_object(op, root_idx, scene, ob, node_to_bone_map)
+
+    return ob
 
 
 def create_scene(op, idx):
