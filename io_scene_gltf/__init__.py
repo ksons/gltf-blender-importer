@@ -6,10 +6,7 @@ import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import buffer
-from io_scene_gltf import material
-from io_scene_gltf import mesh
-from io_scene_gltf import node
+from io_scene_gltf import animation, buffer, material, mesh, node
 
 bl_info = {
     "name": "glTF 2.0 Importer",
@@ -74,6 +71,11 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if 'scenes' in self.root:
             for scene_idx in range(0, len(self.root['scenes'])):
                 node.create_scene(self, scene_idx)
+
+    def generate_actions(self):
+        if 'animations' in self.root:
+            for idx in range(0, len(self.root['animations'])):
+                animation.create_action(self, idx)
 
     def check_version(self):
         def str_to_version(s):
@@ -149,6 +151,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_required_extensions()
 
         self.generate_scenes()
+        self.generate_actions()
 
         if 'scene' in self.root:
             bpy.context.screen.scene = self.scenes[self.root['scene']]
