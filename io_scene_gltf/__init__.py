@@ -51,7 +51,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def get_default_material(self):
         if not self.default_material:
-            self.default_material = material.create_default_material()
+            self.default_material = material.create_default_material(self)
         return self.default_material
 
     def get_mesh(self, idx):
@@ -114,6 +114,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.buffers = {}
         self.cameras = {}
         self.default_material = None
+        self.pbr_group = None
         self.materials = {}
         self.meshes = {}
         self.scenes = {}
