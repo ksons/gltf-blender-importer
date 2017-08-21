@@ -36,21 +36,21 @@ def get_transform(node):
         return mat
 
 
-def create_object(op, idx, scene, armature_ob, node_to_bone_map):
+def create_objects(op, idx, root_idx):
     node = op.root['nodes'][idx]
     name = node.get('name', 'nodes[%d]' % idx)
 
     def create(name, data):
         ob = bpy.data.objects.new(name, data)
-        ob.parent = armature_ob
+        ob.parent = op.armature_ob
 
         con = ob.constraints.new('COPY_TRANSFORMS')
-        con.target = armature_ob
-        con.subtarget = node_to_bone_map[idx]
+        con.target = op.armature_ob
+        con.subtarget = op.node_to_bone_name[idx]
 
-        ob.parent = armature_ob
+        ob.parent = op.armature_ob
 
-        scene.objects.link(ob)
+        op.root_to_objects[root_idx].append(ob)
 
         return ob
 
@@ -67,26 +67,31 @@ def create_object(op, idx, scene, armature_ob, node_to_bone_map):
         create(camera_name, op.get_camera(node['camera']))
 
     for idx in node.get('children', []):
-        create_object(op, idx, scene, armature_ob, node_to_bone_map)
+        create_objects(op, idx, root_idx)
 
 
-def create_tree(op, root_idx, scene):
-    root_node = op.root['nodes'][root_idx]
-    name = root_node.get('name', 'node[%d]' % root_idx)
+def find_root_idxs(op):
+    nodes = op.root.get('nodes', [])
+    idxs = set(range(0, len(nodes)))
+    for node in nodes:
+        for child_idx in node.get('children', []):
+            idxs.remove(child_idx)
+    root_idxs = list(idxs)
+    root_idxs.sort()
+    op.root_idxs = root_idxs
 
-    bpy.ops.object.add(
-        type='ARMATURE',
-        enter_editmode=True,
-        location=(0,0,0))
-    ob = bpy.context.object
-    ob.name = name
-    ob.show_x_ray = True
-    amt = ob.data
-    amt.name = name + '.AMT'
+    for root_idx in root_idxs:
+        op.root_to_objects[root_idx] = []
 
-    node_to_bone_map = {}
 
-    bpy.ops.object.mode_set(mode='EDIT')
+def generate_armature_object(op):
+    bpy.ops.object.add(type='ARMATURE', enter_editmode=True)
+    arma_ob = bpy.context.object
+    arma_ob.name = 'Node Forest'
+    arma_ob.show_x_ray = True
+    arma = arma_ob.data
+    arma.name = 'Node Forest'
+    op.armature_ob = arma_ob
 
     def add_bone(idx, parent, parent_mat):
         node = op.root['nodes'][idx]
@@ -94,29 +99,33 @@ def create_tree(op, root_idx, scene):
         # Urg, isn't this backwards from get_transform? Figure out why.
         mat = parent_mat * get_transform(node)
 
-        bone = amt.edit_bones.new(name)
+        bone = arma.edit_bones.new(name)
         bone.use_connect = False
         if parent:
             bone.parent = parent
-        bone.head = mat * Vector((0,0,0))
+        bone.head = mat * Vector((0, 0, 0))
         #TODO use heuristic for bone length
-        bone.tail = mat * Vector((0,0.2,0))
-        bone.align_roll(mat * Vector((0,0,1)) - bone.head)
+        bone.tail = mat * Vector((0, 0.2, 0))
+        bone.align_roll(mat * Vector((0, 0, 1)) - bone.head)
         #NOTE bones don't seem to have non-uniform scaling.
-        # Maybe we can do something with the bind pose...
 
-        node_to_bone_map[idx] = bone.name
+        op.node_to_bone_name[idx] = bone.name
 
-        for child_idx in node.get('children', []):
+        children = node.get('children', [])
+        for child_idx in children:
             add_bone(child_idx, bone, mat)
 
-    add_bone(root_idx, None, Matrix())
+    for root_idx in op.root_idxs:
+        add_bone(root_idx, None, Matrix())
+        create_objects(op, root_idx, root_idx)
 
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    create_object(op, root_idx, scene, ob, node_to_bone_map)
-
-    return ob
+    # Linking it in is AFAICT the only way to enter edit-mode,
+    # but linking it again when its already linked will cause
+    # an error, so unlink the armature object from the current
+    # scene.
+    bpy.context.scene.objects.unlink(arma_ob)
 
 
 def create_scene(op, idx):
@@ -129,10 +138,22 @@ def create_scene(op, idx):
     scn.render.engine = 'CYCLES'
     #scn.world.use_nodes = True
 
+    # Always link in the whole node forest
+    scn.objects.link(op.armature_ob)
+
     roots = scene.get('nodes', [])
     for root_idx in roots:
-        create_tree(op, root_idx, scn)
+        # Link in any objects in this tree
+        for ob in op.root_to_objects[root_idx]:
+            scn.objects.link(ob)
 
-    scn.update()
+    return scn
 
-    op.scenes[idx] = scn
+
+def generate_scenes(op):
+    find_root_idxs(op)
+    generate_armature_object(op)
+
+    scenes = op.root.get('scenes', [])
+    for scene_idx in range(0, len(scenes)):
+        op.scenes[scene_idx] = create_scene(op, scene_idx)

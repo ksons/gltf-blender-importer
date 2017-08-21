@@ -67,11 +67,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.cameras[idx] = bpy.data.cameras.new(name)
         return self.cameras[idx]
 
-    def generate_scenes(self):
-        if 'scenes' in self.root:
-            for scene_idx in range(0, len(self.root['scenes'])):
-                node.create_scene(self, scene_idx)
-
     def generate_actions(self):
         if 'animations' in self.root:
             for idx in range(0, len(self.root['animations'])):
@@ -119,6 +114,13 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.meshes = {}
         self.scenes = {}
 
+        # Indices of the root nodes
+        self.root_idxs = []
+        # Maps the index of a root node to the objects in that tree
+        self.root_to_objects = {}
+        # Maps a node index to the corresponding bone's name
+        self.node_to_bone_name = {}
+
         fp = open(filename, "rb")
         contents = fp.read()
         fp.close()
@@ -151,7 +153,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_version()
         self.check_required_extensions()
 
-        self.generate_scenes()
+        node.generate_scenes(self)
         self.generate_actions()
 
         if 'scene' in self.root:
