@@ -83,7 +83,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
 
 
 def create_mesh(op, idx):
-    mesh = op.root['meshes'][idx]
+    mesh = op.gltf['meshes'][idx]
     name = mesh.get('name', 'meshes[%d]' % idx)
     primitives = mesh['primitives']
     me = bpy.data.meshes.new(name)

@@ -37,7 +37,7 @@ def get_transform(node):
 
 
 def create_objects(op, idx, root_idx):
-    node = op.root['nodes'][idx]
+    node = op.gltf['nodes'][idx]
     name = node.get('name', 'nodes[%d]' % idx)
 
     def create(name, data):
@@ -71,7 +71,7 @@ def create_objects(op, idx, root_idx):
 
 
 def find_root_idxs(op):
-    nodes = op.root.get('nodes', [])
+    nodes = op.gltf.get('nodes', [])
     idxs = set(range(0, len(nodes)))
     for node in nodes:
         for child_idx in node.get('children', []):
@@ -94,7 +94,7 @@ def generate_armature_object(op):
     op.armature_ob = arma_ob
 
     def add_bone(idx, parent, parent_mat):
-        node = op.root['nodes'][idx]
+        node = op.gltf['nodes'][idx]
         name = node.get('name', 'node[%d]' % idx)
         # Urg, isn't this backwards from get_transform? Figure out why.
         mat = parent_mat * get_transform(node)
@@ -129,7 +129,7 @@ def generate_armature_object(op):
 
 
 def create_scene(op, idx):
-    scene = op.root['scenes'][idx]
+    scene = op.gltf['scenes'][idx]
     name = scene.get('name', 'scene[%d]' % idx)
 
     bpy.ops.scene.new(type='NEW')
@@ -154,6 +154,6 @@ def generate_scenes(op):
     find_root_idxs(op)
     generate_armature_object(op)
 
-    scenes = op.root.get('scenes', [])
+    scenes = op.gltf.get('scenes', [])
     for scene_idx in range(0, len(scenes)):
         op.scenes[scene_idx] = create_scene(op, scene_idx)

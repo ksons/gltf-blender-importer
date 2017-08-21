@@ -62,20 +62,20 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     def get_camera(self, idx):
         if idx not in self.cameras:
             #TODO actually handle cameras
-            camera = self.root['cameras'][idx]
+            camera = self.gltf['cameras'][idx]
             name = camera.get('name', 'cameras[%d]' % idx)
             self.cameras[idx] = bpy.data.cameras.new(name)
         return self.cameras[idx]
 
     def generate_actions(self):
-        if 'animations' in self.root:
-            for idx in range(0, len(self.root['animations'])):
+        if 'animations' in self.gltf:
+            for idx in range(0, len(self.gltf['animations'])):
                 animation.create_action(self, idx)
 
     def check_version(self):
         def str_to_version(s):
             try:
-                version = [int(x) for x in s.split('.')]
+                version = tuple(int(x) for x in s.split('.'))
             except Exception:
                 version = None
             if version and len(version) >= 2:
@@ -83,52 +83,37 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             else:
                 raise Exception('unknown version: %s' % s)
 
-        asset = self.root['asset']
+        asset = self.gltf['asset']
 
         if 'minVersion' in asset:
             min_version = str_to_version(asset['minVersion'])
-            unsupported = (
-                min_version[0] != GLTF_VERSION[0] or
-                min_version[1] > GLTF_VERSION[1]
-            )
-            if unsupported:
+            supported = GLTF_VERSION >= min_version
+            if not supported:
                 raise Exception("unsupported minimum version: %s" % min_version)
         else:
             version = str_to_version(asset['version'])
-            unsupported = version[0] != GLTF_VERSION[0]
-            if unsupported:
+            supported = version[0] == GLTF_VERSION[0]
+            if not supported:
                 raise Exception("unsupported version: %s" % version)
 
     def check_required_extensions(self):
         #TODO
         pass
 
-    def execute(self, context):
+    def load(self):
         filename = self.filepath
         self.base_path = os.path.dirname(filename)
-        self.buffers = {}
-        self.cameras = {}
-        self.default_material = None
-        self.pbr_group = None
-        self.materials = {}
-        self.meshes = {}
-        self.scenes = {}
 
-        # Indices of the root nodes
-        self.root_idxs = []
-        # Maps the index of a root node to the objects in that tree
-        self.root_to_objects = {}
-        # Maps a node index to the corresponding bone's name
-        self.node_to_bone_name = {}
-
-        fp = open(filename, "rb")
-        contents = fp.read()
-        fp.close()
+        with open(filename, 'rb') as f:
+            contents = f.read()
 
         # Use magic number to detect GLB files.
         is_glb = contents[:4] == b"glTF"
 
-        if is_glb:
+        if not is_glb:
+            self.gltf = json.loads(contents)
+            self.glb_buffer = None
+        else:
             print("Detected GLB file")
 
             version = struct.unpack_from("<I", contents, offset = 4)[0]
@@ -137,7 +122,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
             json_length = struct.unpack_from("<I", contents, offset = 12)[0]
             end_of_json = 20 + json_length
-            self.root = json.loads(contents[20 : end_of_json])
+            self.gltf = json.loads(contents[20 : end_of_json])
 
             # Check for BIN chunk
             if len(contents) > end_of_json:
@@ -146,9 +131,23 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
                 self.glb_buffer = contents[end_of_json + 8 : end_of_bin]
             else:
                 self.glb_buffer = None
-        else:
-            self.root = json.loads(contents)
-            self.glb_buffer = None
+
+    def execute(self, context):
+        self.buffers = {}
+        self.cameras = {}
+        self.default_material = None
+        self.pbr_group = None
+        self.materials = {}
+        self.meshes = {}
+        self.scenes = {}
+        # Indices of the root nodes
+        self.root_idxs = []
+        # Maps the index of a root node to the objects in that tree
+        self.root_to_objects = {}
+        # Maps a node index to the corresponding bone's name
+        self.node_to_bone_name = {}
+
+        self.load()
 
         self.check_version()
         self.check_required_extensions()
@@ -156,8 +155,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         node.generate_scenes(self)
         self.generate_actions()
 
-        if 'scene' in self.root:
-            bpy.context.screen.scene = self.scenes[self.root['scene']]
+        if 'scene' in self.gltf:
+            bpy.context.screen.scene = self.scenes[self.gltf['scene']]
 
         return {'FINISHED'}
 

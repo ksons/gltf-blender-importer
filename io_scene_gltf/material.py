@@ -24,8 +24,8 @@ def do_with_temp_file(contents, func):
 
 
 def create_texture(op, idx, name, tree):
-    texture = op.root['textures'][idx]
-    source = op.root['images'][texture['source']]
+    texture = op.gltf['textures'][idx]
+    source = op.gltf['images'][texture['source']]
 
     tex_image = tree.nodes.new("ShaderNodeTexImage")
 
@@ -181,7 +181,7 @@ def get_pbr_group(op):
 
 
 def create_material(op, idx):
-    material = op.root['materials'][idx]
+    material = op.gltf['materials'][idx]
     material_name = material.get('name', 'materials[%d]' % idx)
     return create_material_from_object(op, material, material_name)
 

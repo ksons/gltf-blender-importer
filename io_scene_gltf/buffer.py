@@ -3,7 +3,7 @@ import os
 import struct
 
 def create_buffer(op, idx):
-    buffer = op.root['buffers'][idx]
+    buffer = op.gltf['buffers'][idx]
 
     if op.glb_buffer and idx == 0 and 'uri' not in buffer:
         return op.glb_buffer
@@ -24,7 +24,7 @@ def create_buffer(op, idx):
 
 
 def create_buffer_view(op, idx):
-    buffer_view = op.root['bufferViews'][idx]
+    buffer_view = op.gltf['bufferViews'][idx]
     buffer = op.get_buffer(buffer_view["buffer"])
     byte_offset = buffer_view.get("byteOffset", 0)
     byte_length = buffer_view["byteLength"]
@@ -34,7 +34,7 @@ def create_buffer_view(op, idx):
 
 
 def create_accessor(op, idx):
-    accessor = op.root['accessors'][idx]
+    accessor = op.gltf['accessors'][idx]
 
     count = accessor['count']
     fmt_char_lut = dict([
