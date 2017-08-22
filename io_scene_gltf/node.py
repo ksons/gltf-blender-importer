@@ -93,6 +93,14 @@ def generate_armature_object(op):
     arma.name = 'Node Forest'
     op.armature_ob = arma_ob
 
+    # Turn glTF up (+Y) into Blender up (+Z)
+    arma_ob.matrix_local = Matrix([
+        [1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1]
+    ])
+
     def add_bone(idx, parent, parent_mat):
         node = op.gltf['nodes'][idx]
         name = node.get('name', 'node[%d]' % idx)
