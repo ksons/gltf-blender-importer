@@ -58,7 +58,17 @@ def create_objects(op, idx, root_idx):
         mesh_name = name
         if 'camera' in node:
             mesh_name += '.mesh'
-        create(mesh_name, op.get_mesh(node['mesh']))
+        ob = create(mesh_name, op.get_mesh(node['mesh']))
+
+        if 'skin' in node:
+            skin = op.gltf['skins'][node['skin']]
+            joints = skin['joints']
+            for joint in joints:
+                ob.vertex_groups.new(op.node_to_bone_name[joint])
+
+            mod = ob.modifiers.new('rig', 'ARMATURE')
+            mod.object = op.armature_ob
+            mod.use_vertex_groups = True
 
     if 'camera' in node:
         camera_name = name
@@ -112,10 +122,10 @@ def generate_armature_object(op):
         if parent:
             bone.parent = parent
         bone.head = mat * Vector((0, 0, 0))
-        #TODO use heuristic for bone length
-        bone.tail = mat * Vector((0, 0.2, 0))
+        bone.tail = mat * Vector((0, 1, 0))
         bone.align_roll(mat * Vector((0, 0, 1)) - bone.head)
         #NOTE bones don't seem to have non-uniform scaling.
+        # This appears to be a serious problem for us.
 
         op.node_to_bone_name[idx] = bone.name
 
@@ -125,6 +135,9 @@ def generate_armature_object(op):
 
     for root_idx in op.root_idxs:
         add_bone(root_idx, None, Matrix())
+    # Done with bones; node_to_bone_name is filled out.
+    # Now create objects.
+    for root_idx in op.root_idxs:
         create_objects(op, root_idx, root_idx)
 
     bpy.ops.object.mode_set(mode='OBJECT')
