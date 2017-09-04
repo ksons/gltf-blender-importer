@@ -106,7 +106,7 @@ def generate_armature_object(op):
     # Turn glTF up (+Y) into Blender up (+Z)
     arma_ob.matrix_local = Matrix([
         [1, 0, 0, 0],
-        [0, 0, 1, 0],
+        [0, 0, -1, 0],
         [0, 1, 0, 0],
         [0, 0, 0, 1]
     ])
