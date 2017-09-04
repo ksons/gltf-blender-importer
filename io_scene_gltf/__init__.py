@@ -39,10 +39,14 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         return self.buffers[idx]
 
     def get_buffer_view(self, idx):
-        return buffer.create_buffer_view(self, idx)
+        if idx not in self.buffer_views:
+            self.buffer_views[idx] = buffer.create_buffer_view(self, idx)
+        return self.buffer_views[idx]
 
     def get_accessor(self, idx):
-        return buffer.create_accessor(self, idx)
+        if idx not in self.accessors:
+            self.accessors[idx] = buffer.create_accessor(self, idx)
+        return self.accessors[idx]
 
     def get_material(self, idx):
         if idx not in self.materials:
@@ -134,6 +138,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         self.buffers = {}
+        self.buffer_views = {}
+        self.accessors = {}
         self.cameras = {}
         self.default_material = None
         self.pbr_group = None
