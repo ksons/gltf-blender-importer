@@ -21,6 +21,12 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     else:
         indices = None
 
+    me = bpy.data.meshes.new('{{{TEMP}}}')
+
+    if 'POSITION' not in attributes:
+        # Early out if there's no POSITION data
+        return me
+
     verts = op.get_accessor(attributes['POSITION'])
     edges = []
     faces = []
@@ -41,7 +47,6 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     else:
         raise Exception("primitive mode unimplemented: %d" % mode)
 
-    me = bpy.data.meshes.new('>>>TEMP<<<')
     me.from_pydata(verts, edges, faces)
     me.validate()
 
@@ -77,7 +82,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     if 'TEXCOORD_1' in attributes:
         assign_texcoords(op.get_accessor(attributes['TEXCOORD_1']), me.uv_layers[1].data)
 
-    if 'JOINTS_0' in attributes:
+    if 'JOINTS_0' in attributes and 'WEIGHTS_0' in attributes:
         # Don't seem to need to deal with all_attributes here.
         # The only way I could find to set vertex groups was by
         # round-tripping through a bmesh.
