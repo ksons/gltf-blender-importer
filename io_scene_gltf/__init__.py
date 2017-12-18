@@ -114,29 +114,51 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         # Use magic number to detect GLB files.
         is_glb = contents[:4] == b"glTF"
 
-        if not is_glb:
-            self.gltf = json.loads(contents)
-            self.glb_buffer = None
+        if is_glb:
+            self.parse_glb(contents)
         else:
-            print("Detected GLB file")
+            self.gltf = json.loads(contents)
 
-            version = struct.unpack_from("<I", contents, offset = 4)[0]
-            if version != 2:
-                raise Exception("GLB: version not supported: %d" % version)
+    def parse_glb(self, contents):
+        header = struct.unpack_from("<4sII", contents)
+        glb_version = header[1]
+        if glb_version != 2:
+            raise Exception("GLB: version not supported: %d" % version)
 
-            json_length = struct.unpack_from("<I", contents, offset = 12)[0]
-            end_of_json = 20 + json_length
-            self.gltf = json.loads(contents[20 : end_of_json])
+        def parse_chunk(offset):
+            header = struct.unpack_from("<I4s", contents, offset=offset)
+            data_len = header[0]
+            ty = header[1]
+            data = contents[offset + 8 : offset + 8 + data_len]
+            next_offset = offset + 8 + data_len
+            return { 'type': ty, 'data': data, 'next_offset': next_offset }
 
-            # Check for BIN chunk
-            if len(contents) > end_of_json:
-                bin_length = struct.unpack_from("<I", contents, offset = end_of_json)[0]
-                end_of_bin = end_of_json + 8 + bin_length
-                self.glb_buffer = contents[end_of_json + 8 : end_of_bin]
-            else:
-                self.glb_buffer = None
+        offset = 12 # end of header
+
+        json_chunk = parse_chunk(offset)
+        if json_chunk['type'] != b'JSON':
+            raise Exception('GLB: JSON chunk must be first')
+        self.gltf = json.loads(json_chunk['data'])
+        offset = json_chunk['next_offset']
+
+        while offset < len(contents):
+            chunk = parse_chunk(offset)
+
+            if chunk['type'] == b'JSON':
+                raise Exception('GLB: Too many JSON chunks, should be 1')
+
+            # Ignore unknown chunks
+            if chunk['type'] != b'BIN\0':
+                offset = chunk['next_offset']
+                continue
+
+            if self.glb_buffer:
+                raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
+            self.glb_buffer = chunk['data']
+            offset = chunk['next_offset']
 
     def execute(self, context):
+        self.glb_buffer = None
         self.buffers = {}
         self.buffer_views = {}
         self.accessors = {}
