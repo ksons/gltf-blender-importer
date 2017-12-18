@@ -5,16 +5,21 @@ import struct
 def create_buffer(op, idx):
     buffer = op.gltf['buffers'][idx]
 
+    # Handle GLB buffer
     if op.glb_buffer and idx == 0 and 'uri' not in buffer:
         return op.glb_buffer
 
-    buffer_uri = buffer['uri']
+    uri = buffer['uri']
 
-    is_data_uri = buffer_uri[:37] == "data:application/octet-stream;base64,"
-    if is_data_uri:
-        return base64.b64decode(buffer_uri[37:])
+    # Try to decode base64 data URIs
+    if uri[:5] == 'data:':
+        idx = uri.find(';base64,')
+        if idx != -1:
+            base64_data = uri[idx+8:]
+            return base64.b64decode(base64_data)
 
-    buffer_location = os.path.join(op.base_path, buffer_uri)
+    # If we got here, assume it's a filepath
+    buffer_location = os.path.join(op.base_path, uri) #TODO absolute paths?
     print("Loading file", buffer_location)
     fp = open(buffer_location, "rb")
     bytes_read = fp.read()
