@@ -31,14 +31,47 @@ test_script = os.path.join(base_dir, 'generate_report.py')
 src_addon_dir = os.path.join(base_dir, os.pardir, 'io_scene_gltf')
 
 
+def fetch_samples():
+    """Get sample files by initializing git submodules.
+    """
+    try:
+        print("Checking if we're in a git repo...")
+        result = subprocess.run(
+            ['git', 'rev-parse'],
+            cwd=base_dir,
+            check=True
+        )
+    except:
+        print('Is git installed?')
+        print('Did you get this repo through git (as opposed to eg. a zip)?')
+        raise
+
+    try:
+        print("Initializing submodules (be patient)...")
+        result = subprocess.run(
+            ['git', 'submodule', 'update', '--init', '--recursive'],
+            cwd=base_dir,
+            check=True
+        )
+    except:
+        print("Couldn't init submodules. Aborting")
+        raise
+
+    if not os.path.isdir(samples_path):
+        print("Samples still aren't there! Aborting")
+        raise Exception("no samples after initializing submodules")
+    else:
+        print('Good to go!')
+        print('This step should only happen once.\n\n')
+
+
 def generate_report():
-    """Calls Blender to generate report.json file."""
+    """Calls Blender to generate report.json file.
+    """
     if not os.path.isdir(samples_path):
         print("Couldn't find glTF-Sample-Models/2.0/")
-        print("Get it by running `git submodule update --init --recursive`")
-        print("See README.md for more instructions")
-        print("Tests did not run")
-        sys.exit(1)
+        print("I'll try to fetch it for you...")
+        fetch_samples()
 
     # Print Blender version for debugging
     try:
