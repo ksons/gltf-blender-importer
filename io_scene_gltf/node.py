@@ -2,17 +2,43 @@ import bpy
 import math
 from mathutils import Matrix, Quaternion, Vector
 
+"""
+Handle nodes and scenes.
+
+The glTF node forest is represented in Blender as a single armature, where the
+nodes become bones. The meshes and cameras are set in the correct place in the
+heirachy using a "Copy Transform" constraint to lock them to their parent. Using
+an armature is necessary to skin meshes -- glTF skins through the configuration
+of the node forest and Blender only skins through armatures (AFAIK). The main
+drawback of this is that I don't think you can scale a bone's rest position so
+scaling nodes doesn't work. Also, the bone positions are fairly meaningless.
+
+COLLADA should have these problems too; check what it does? (I know it doesn't
+solve the bone positions issue.)
+
+For our purposes it would be really nice if Blender had an armature based on
+joints instead of bones.
+
+It would also be desirable to check that what we do gives the correst result ie.
+the transform Blender does equals the one glTF calls for, but neither Blender
+nor glTF have docs for exactly what that transform should be :-/
+
+Scenes are represented by Blender scene. Each one has the whole node armature
+linked in, but only has those meshes and cameras linked in that are "visible" in
+that scene (ie. are descendants of one of the roots of the scene).
+"""
+
 def convert_matrix(m):
-    """Convert glTF matrix to Blender matrix"""
+    """Converts a glTF matrix to a Blender matrix."""
     result = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
     result.transpose() # column-major to row-major
     return result
 
 
 def convert_quaternion(q):
-    """Convert glTF quaternion to Blender quaternion"""
-    return Quaternion([q[3], q[0], q[1], q[2]]) # xyzw -> wxyz
-
+    """Converts a glTF quaternion to Blender a quaternion."""
+     # xyzw -> wxyz
+    return Quaternion([q[3], q[0], q[1], q[2]])
 
 def get_transform(node):
     if 'matrix' in node:
@@ -44,6 +70,10 @@ def create_objects(op, idx, root_idx):
         ob = bpy.data.objects.new(name, data)
         ob.parent = op.armature_ob
 
+        #TODO make the object a child of the bone instead? Making it a
+        # child puts it at the tail of the bone and we want it at the
+        # head. We'd just need to translate it along the length of the
+        # bone.
         con = ob.constraints.new('COPY_TRANSFORMS')
         con.target = op.armature_ob
         con.subtarget = op.node_to_bone_name[idx]
