@@ -85,7 +85,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     #TODO test this!
     if 'COLOR_0' in all_attributes:
         me.vertex_colors.new('COLOR_0')
-    if 'COLOR_0' in all_attributes:
+    if 'COLOR_0' in attributes:
         colors = op.get_accessor(attributes['COLOR_0'])
         color_layer = me.vertex_colors[0].data
         for polygon in me.polygons:
