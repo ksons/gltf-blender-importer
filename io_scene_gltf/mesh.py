@@ -12,16 +12,10 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     the union of all the attributes from the primitives for the (glTF)
     mesh that this primitive is contained in so we can always create
     enough layers.
-
     """
-    mode = primitive.get('mode', 4)
-    attributes = primitive['attributes']
-    if 'indices' in primitive:
-        indices = op.get_accessor(primitive['indices'])
-    else:
-        indices = None
-
     me = bpy.data.meshes.new('{{{TEMP}}}')
+
+    attributes = primitive['attributes']
 
     if 'POSITION' not in attributes:
         # Early out if there's no POSITION data
@@ -31,19 +25,49 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     edges = []
     faces = []
 
+    mode = primitive.get('mode', 4)
+
+    if 'indices' in primitive:
+        indices = op.get_accessor(primitive['indices'])
+    else:
+        indices = range(0, len(verts))
+
+    #TODO only mode TRIANGLES is tested!!
     if mode == 0:
         # POINTS
         pass
     elif mode == 1:
-        #LINES
-        if not indices:
-            indices = range(0, len(verts))
+        # LINES
         edges = [tuple(indices[i:i+2]) for i in range(0, len(indices), 2)]
+    elif mode == 2 or mode == 3:
+        # LINE LOOP/STRIP
+        edges = [tuple(indices[i:i+2]) for i in range(0, len(indices) - 1)]
+        if mode == 2:
+            edges.append((indices[-1], indices[0]))
     elif mode == 4:
-        #TRIANGLES
-        if not indices:
-            indices = range(0, len(verts))
+        # TRIANGLES
         faces = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
+    elif mode == 5:
+        # TRIANGLE STRIP
+        #   1---3---5
+        #  / \ / \ /
+        # 0---2---4
+        def alternate(i, xs):
+            ccw = i % 2 != 0
+            return xs if ccw else (xs[0], xs[2], xs[1])
+        faces = [
+            alternate(i, tuple(indices[i:i+3]))
+            for i in range(0, len(indices) - 2)
+        ]
+    elif mode == 6:
+        # TRIANGLE FAN
+        #   3---2
+        #  / \ / \
+        # 4---0---1
+        faces = [
+            (indices[0], indices[i], indices[i+1])
+            for i in range(1, len(indices) - 1)
+        ]
     else:
         raise Exception("primitive mode unimplemented: %d" % mode)
 
