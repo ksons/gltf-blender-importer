@@ -20,8 +20,10 @@ bl_info = {
 }
 
 
-# Supported glTF version: 2.0
+# Supported glTF version
 GLTF_VERSION = (2, 0)
+# Supported extensions
+EXTENSIONS = set()
 
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
@@ -103,8 +105,15 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
                 raise Exception('unsupported version: %s' % version)
 
     def check_required_extensions(self):
-        #TODO
+        #TODO the below works but it will make the tests fails.
+        # Can be uncommented when KhronosGroup/glTF-Sample-Models#144
+        # is closed OR we implement pbrSpecularGlossiness.
         pass
+
+        #for ext in self.gltf.get('extensionsRequired', []):
+        #    if ext not in EXTENSIONS:
+        #        raise Exception('unsupported extension was required: %s' % ext)
+
 
     def load(self):
         filename = self.filepath
