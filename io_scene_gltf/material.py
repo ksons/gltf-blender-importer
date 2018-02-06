@@ -27,7 +27,7 @@ def create_texture(op, idx, name, tree):
     texture = op.gltf['textures'][idx]
     source = op.gltf['images'][texture['source']]
 
-    tex_image = tree.nodes.new("ShaderNodeTexImage")
+    tex_image = tree.nodes.new('ShaderNodeTexImage')
 
     # Don't know how to load an image from memory, so if the data is
     # in a buffer or data URI, we'll write it to a temp file and use

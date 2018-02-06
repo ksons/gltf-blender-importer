@@ -6,7 +6,7 @@
 Just run
 
 ````
-$ python run_tests.py
+python run_tests.py
 ````
 
 The sample models are stored as a git submodule. The first time you run this,

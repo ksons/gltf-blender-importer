@@ -9,27 +9,28 @@ from bpy_extras.io_utils import ImportHelper
 from io_scene_gltf import animation, buffer, material, mesh, node
 
 bl_info = {
-    "name": "glTF 2.0 Importer",
-    "author": "Kristian Sons",
-    "blender": (2, 71, 0),
-    "location": "File > Import",
-    "description": "",
-    "warning": "",
-    "wiki_url": "",
-    "category": "Import-Export"
+    'name': 'glTF 2.0 Importer',
+    'author': 'Kristian Sons',
+    'blender': (2, 71, 0),
+    'location': 'File > Import',
+    'description': '',
+    'warning': '',
+    'wiki_url': '',
+    'category': 'Import-Export'
 }
+
 
 # Supported glTF version: 2.0
 GLTF_VERSION = (2, 0)
 
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
-    bl_idname = "import_scene.gltf"
+    bl_idname = 'import_scene.gltf'
     bl_label = 'Import glTF'
 
-    filename_ext = ".gltf"
+    filename_ext = '.gltf'
     filter_glob = StringProperty(
-        default="*.gltf;*.glb",
+        default='*.gltf;*.glb',
         options={'HIDDEN'},
     )
 
@@ -80,12 +81,12 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         def str_to_version(s):
             try:
                 version = tuple(int(x) for x in s.split('.'))
+                if len(version) >= 2:
+                    return version
             except Exception:
-                version = None
-            if version and len(version) >= 2:
-                return version
-            else:
-                raise Exception('unknown version: %s' % s)
+                pass
+
+            raise Exception('unknown version format: %s' % s)
 
         asset = self.gltf['asset']
 
@@ -93,12 +94,13 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             min_version = str_to_version(asset['minVersion'])
             supported = GLTF_VERSION >= min_version
             if not supported:
-                raise Exception("unsupported minimum version: %s" % min_version)
+                raise Exception('unsupported minimum version: %s' % min_version)
         else:
             version = str_to_version(asset['version'])
+            # Check only major version; we should be backwards- and forwards-compatible
             supported = version[0] == GLTF_VERSION[0]
             if not supported:
-                raise Exception("unsupported version: %s" % version)
+                raise Exception('unsupported version: %s' % version)
 
     def check_required_extensions(self):
         #TODO
@@ -112,7 +114,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             contents = f.read()
 
         # Use magic number to detect GLB files.
-        is_glb = contents[:4] == b"glTF"
+        is_glb = contents[:4] == b'glTF'
 
         if is_glb:
             self.parse_glb(contents)
@@ -120,13 +122,13 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.gltf = json.loads(contents)
 
     def parse_glb(self, contents):
-        header = struct.unpack_from("<4sII", contents)
+        header = struct.unpack_from('<4sII', contents)
         glb_version = header[1]
         if glb_version != 2:
-            raise Exception("GLB: version not supported: %d" % version)
+            raise Exception('GLB: version not supported: %d' % version)
 
         def parse_chunk(offset):
-            header = struct.unpack_from("<I4s", contents, offset=offset)
+            header = struct.unpack_from('<I4s', contents, offset=offset)
             data_len = header[0]
             ty = header[1]
             data = contents[offset + 8 : offset + 8 + data_len]
@@ -139,22 +141,25 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if json_chunk['type'] != b'JSON':
             raise Exception('GLB: JSON chunk must be first')
         self.gltf = json.loads(json_chunk['data'])
+
         offset = json_chunk['next_offset']
 
         while offset < len(contents):
             chunk = parse_chunk(offset)
-
-            if chunk['type'] == b'JSON':
-                raise Exception('GLB: Too many JSON chunks, should be 1')
 
             # Ignore unknown chunks
             if chunk['type'] != b'BIN\0':
                 offset = chunk['next_offset']
                 continue
 
+            if chunk['type'] == b'JSON':
+                raise Exception('GLB: Too many JSON chunks, should be 1')
+
             if self.glb_buffer:
                 raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
+
             self.glb_buffer = chunk['data']
+
             offset = chunk['next_offset']
 
     def execute(self, context):
@@ -191,7 +196,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
 # Add to a menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportGLTF.bl_idname, text="glTF JSON (.gltf/.glb)")
+    self.layout.operator(ImportGLTF.bl_idname, text='glTF JSON (.gltf/.glb)')
 
 
 def register():
@@ -206,5 +211,5 @@ def unregister():
     bpy.types.INFO_MT_file_import.remove(menu_func_import)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     register()

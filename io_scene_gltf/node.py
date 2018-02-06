@@ -134,6 +134,7 @@ def generate_armature_object(op):
     op.armature_ob = arma_ob
 
     # Turn glTF up (+Y) into Blender up (+Z)
+    #TODO is this right?
     arma_ob.matrix_local = Matrix([
         [1, 0, 0, 0],
         [0, 0, -1, 0],
@@ -172,10 +173,10 @@ def generate_armature_object(op):
 
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    # Linking it in is AFAICT the only way to enter edit-mode,
-    # but linking it again when its already linked will cause
-    # an error, so unlink the armature object from the current
-    # scene.
+    # Linking it in, AFAICT, was necessary to enter edit mode for the above. But
+    # create_scene is going to be responsible for linking it into each scene,
+    # and linking it where it's already linked throws an error, so we unlink it
+    # here for now.
     bpy.context.scene.objects.unlink(arma_ob)
 
 
