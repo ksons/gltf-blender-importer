@@ -1,3 +1,4 @@
+import base64
 import bpy
 import json
 import os
@@ -25,77 +26,161 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     filename_ext = ".gltf"
     filter_glob = StringProperty(
-        default="*.gltf",
+        default="*.gltf;*.glb",
         options={'HIDDEN'},
     )
 
     def get_buffer(self, idx):
         buffer = self.root['buffers'][idx]
+
+        if self.glb_buffer and idx == 0 and 'uri' not in buffer:
+            return self.glb_buffer
+
         buffer_uri = buffer['uri']
+
+        is_data_uri = buffer_uri[:37] == "data:application/octet-stream;base64,"
+        if is_data_uri:
+            return base64.b64decode(buffer_uri[37:])
+
         buffer_location = os.path.join(self.base_path, buffer_uri)
 
-        if buffer_location in self.buffers:
-            return self.buffers[buffer_location]
+        if buffer_location in self.file_cache:
+            return self.file_cache[buffer_location]
 
-        print("Loading buffer", buffer_location)
+        print("Loading file", buffer_location)
         fp = open(buffer_location, "rb")
         bytes_read = fp.read()
         fp.close()
 
-        self.buffers[buffer_location] = bytes_read
+        self.file_cache[buffer_location] = bytes_read
         # print(len(bytes_read), buffer)
         return bytes_read
 
     def get_buffer_view(self, idx):
         buffer_view = self.root['bufferViews'][idx]
         buffer = self.get_buffer(buffer_view["buffer"])
-        byte_offset = buffer_view["byteOffset"]
+        byte_offset = buffer_view.get("byteOffset", 0)
         byte_length = buffer_view["byteLength"]
         result = buffer[byte_offset:byte_offset + byte_length]
+        stride = buffer_view.get('byteStride', None)
         # print("view", len(result))
-        return result
+        return (result, stride)
 
     def get_accessor(self, idx):
         accessor = self.root['accessors'][idx]
-        buffer_view = self.get_buffer_view(accessor['bufferView'])
-        component_type = accessor["componentType"]
-        type_size = accessor["type"]
 
-        if component_type == 5126:
-            fmt = "<f"
-        elif component_type == 5123:
-            fmt = "<H"
-        elif component_type == 5125:
-            fmt = "<I"
+        count = accessor['count']
+        fmt_char_lut = dict([
+            (5120, "b"), # BYTE
+            (5121, "B"), # UNSIGNED_BYTE
+            (5122, "h"), # SHORT
+            (5123, "H"), # UNSIGNED_SHORT
+            (5125, "I"), # UNSIGNED_INT
+            (5126, "f")  # FLOAT
+        ])
+        fmt_char = fmt_char_lut[accessor['componentType']]
+        component_size = struct.calcsize(fmt_char)
+        num_components_lut = {
+            "SCALAR": 1,
+            "VEC2": 2,
+            "VEC3": 3,
+            "VEC4": 4,
+            "MAT2": 4,
+            "MAT3": 9,
+            "MAT4": 16
+        }
+        num_components = num_components_lut[accessor['type']]
+        fmt = "<" + (fmt_char * num_components)
+        default_stride = struct.calcsize(fmt)
+
+        # Special layouts for certain formats; see the section about
+        # data alignment in the glTF 2.0 spec.
+        if accessor['type'] == 'MAT2' and component_size == 1:
+            fmt = "<" + \
+                (fmt_char * 2) + "xx" + \
+                (fmt_char * 2)
+            default_stride = 8
+        elif accessor['type'] == 'MAT3' and component_size == 1:
+            fmt = "<" + \
+                (fmt_char * 3) + "x" + \
+                (fmt_char * 3) + "x" + \
+                (fmt_char * 3)
+            default_stride = 12
+        elif accessor['type'] == 'MAT3' and component_size == 2:
+            fmt = "<" + \
+                (fmt_char * 3) + "xx" + \
+                (fmt_char * 3) + "xx" + \
+                (fmt_char * 3)
+            default_stride = 24
+
+        normalize = None
+        if 'normalized' in accessor and accessor['normalized']:
+            # Technically, there are two slightly different normalization
+            # formulas used in OpenGL for signed integers.
+            #   1) max(x/(2^b - 1), -1)
+            #   2) (2x + 1)/(2^b - 1)
+            # (1) is used by recent OpenGL versions. (2) is used by older
+            # versions, including WebGL (the problem with (2) is it is
+            # never zero). We'll use (2) since it's what WebGL should do.
+            normalize_lut = dict([
+                (5120, lambda x: (2*x + 1) / (2**8 - 1)), # BYTE
+                (5121, lambda x: x / (2*8 - 1)), # UNSIGNED_BYTE
+                (5122, lambda x: (2*x + 1) / (2**16 - 1)), # SHORT
+                (5123, lambda x: x / (2*16 - 1)), # UNSIGNED_SHORT
+                (5125, lambda x: x / (2**32 - 1)), # UNSIGNED_INT
+            ])
+            normalize = normalize_lut[accessor['componentType']]
+
+        if 'bufferView' in accessor:
+            (buf, stride) = self.get_buffer_view(accessor['bufferView'])
+            stride = stride or default_stride
         else:
-            raise ValueError("Unknown component type: %s" % component_type)
+            stride = default_stride
+            buf = [0] * (stride * count)
 
-        values = [i[0] for i in struct.iter_unpack(fmt, buffer_view)]
+        if 'sparse' in accessor:
+            #TODO sparse
+            raise Exception("sparse accessors unsupported")
 
-        result = values
-
-        if type_size == "VEC3":
-            result = [Vector(values[i:i+3]) for i in range(0, len(values), 3)]
-        elif type_size == "VEC2":
-            result = [tuple(values[i:i+2]) for i in range(0, len(values), 2)]
+        off = accessor.get('byteOffset', 0)
+        result = []
+        while len(result) < count:
+            elem = struct.unpack_from(fmt, buf, offset = off)
+            if normalize:
+                elem = tuple([normalize(x) for x in elem])
+            if num_components == 1:
+                elem = elem[0]
+            result.append(elem)
+            off += stride
 
         return result
 
     def create_texture(self, idx, name, tree):
         texture = self.root['textures'][idx]
         source = self.root['images'][texture['source']]
-        uri = source['uri']
-        image_location = os.path.join(self.base_path, uri)
 
         tex_image = tree.nodes.new("ShaderNodeTexImage")
-        tex_image.image = load_image(image_location)
-        tex_image.label = name
+
+        if 'uri' in source:
+            uri = source['uri']
+            is_data_uri = uri[:5] == "data:"
+            if is_data_uri:
+                #TODO how do you load an image from memory?
+                pass
+            else:
+                image_location = os.path.join(self.base_path, uri)
+                tex_image.image = load_image(image_location)
+
+            tex_image.label = name
+        else:
+            #TODO load image from buffer view
+            pass
 
         return tex_image
 
     def create_material(self, idx):
         material = self.root['materials'][idx]
-        material_name = material['name']
+        material_name = material.get('name', 'Material')
 
         if material_name in self.materials:
             return self.materials[material_name]
@@ -210,8 +295,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def create_mesh(self, node, mesh):
 
-        me = bpy.data.meshes.new(mesh['name'])
-        ob = bpy.data.objects.new(node['name'], me)
+        me = bpy.data.meshes.new(mesh.get('name', 'Mesh'))
+        ob = bpy.data.objects.new(node.get('name', 'Node'), me)
 
         self.create_translation(ob, node)
 
@@ -225,6 +310,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         positions = self.get_accessor(attributes['POSITION'])
 
         me.from_pydata(positions, [], faces)
+        me.validate()
 
         for polygon in me.polygons:
             polygon.use_smooth = True
@@ -248,7 +334,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if 'mesh' in node:
             ob = self.create_mesh(node, self.root['meshes'][node['mesh']])
         else:
-            ob = bpy.data.objects.new(node['name'], None)
+            ob = bpy.data.objects.new(node.get('name', 'Node'), None)
             self.create_translation(ob, node)
 
         ob.parent = parent
@@ -264,28 +350,55 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         filename = self.filepath
         self.base_path = os.path.dirname(filename)
         self.materials = {}
-        self.buffers = {}
+        self.file_cache = {}
 
-        fp = open(filename, "r")
-        self.root = root = json.load(fp)
+        fp = open(filename, "rb")
+        contents = fp.read()
         fp.close()
+
+        # Use magic number to detect GLB files.
+        is_glb = contents[:4] == b"glTF"
+
+        if is_glb:
+            print("Detected GLB file")
+
+            version = struct.unpack_from("<I", contents, offset = 4)[0]
+            if version != 2:
+                raise Exception("GLB: version not supported: %d" % version)
+
+            json_length = struct.unpack_from("<I", contents, offset = 12)[0]
+            end_of_json = 20 + json_length
+            self.root = json.loads(contents[20 : end_of_json])
+
+            # Check for BIN chunk
+            if len(contents) > end_of_json:
+                bin_length = struct.unpack_from("<I", contents, offset = end_of_json)[0]
+                end_of_bin = end_of_json + 8 + bin_length
+                self.glb_buffer = contents[end_of_json + 8 : end_of_bin]
+            else:
+                self.glb_buffer = None
+        else:
+            self.root = json.loads(contents)
+            self.glb_buffer = None
 
         scn = bpy.context.scene
         scn.render.engine = 'CYCLES'
         scn.world.use_nodes = True
 
-        sceneIdx = root['scene']
-        nodes = root['nodes']
+        sceneIdx = self.root['scene']
+        nodes = self.root['nodes']
 
-        scene = root['scenes'][sceneIdx]
+        scene = self.root['scenes'][sceneIdx]
 
-        [self.create_group(nodes[idx], None) for idx in scene['nodes']]
+        for idx in scene['nodes']:
+            self.create_group(nodes[idx], None)
+
         return {'FINISHED'}
 
 
 # Add to a menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportGLTF.bl_idname, text="glTF JSON (.gltf)")
+    self.layout.operator(ImportGLTF.bl_idname, text="glTF JSON (.gltf/.glb)")
 
 
 def register():
