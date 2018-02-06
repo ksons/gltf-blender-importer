@@ -150,14 +150,37 @@ def print_report():
     sys.exit(exit_code)
 
 
+def print_times():
+    """Prints the tests sorted by import time."""
+    with open(report_path) as f:
+        report = json.load(f)
+
+    test_passed = lambda test: test['result'] == 'PASSED'
+    tests = list(filter(test_passed, report['tests']))
+    tests.sort(key=lambda test: test['timeElapsed'], reverse=True)
+
+    for (num, test) in enumerate(tests, start=1):
+        name = os.path.relpath(test['filename'], samples_path)
+        print('( #%-3d )  % 2.4fs   %s' % (num, test['timeElapsed'], name))
+
+
 parser = argparse.ArgumentParser(description='Run glTF importer tests.')
 parser.add_argument(
     '--print-last-report',
     action='store_true',
     help="print last report (don't run tests again)",
 )
+parser.add_argument(
+    '--print-last-times',
+    action='store_true',
+    help="show last results sorted by import time (don't run tests again)",
+)
 args = parser.parse_args()
 
-if not args.print_last_report:
+if args.print_last_times:
+    print_times()
+elif args.print_last_report:
+    print_report()
+else:
     generate_report()
-print_report()
+    print_report()
