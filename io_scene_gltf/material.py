@@ -64,6 +64,11 @@ def create_texture(op, idx, name, tree):
 
 def create_pbr_group():
     """Create a node group for metallic-roughness PBR."""
+
+    #XXX IDEA
+    # Use rna2xml to serialize the PBR group in KhronosGroup/glTF-Blender-Exporter
+    # and just import it here and get rid of this whole mess!
+
     tree = bpy.data.node_groups.new('metallicRoughnessPBR', 'ShaderNodeTree')
     inputs = tree.inputs
     outputs = tree.outputs
@@ -183,10 +188,10 @@ def get_pbr_group(op):
 def create_material(op, idx):
     material = op.gltf['materials'][idx]
     material_name = material.get('name', 'materials[%d]' % idx)
-    return create_material_from_object(op, material, material_name)
+    return create_material_from_properties(op, material, material_name)
 
 
-def create_material_from_object(op, material, material_name):
+def create_material_from_properties(op, material, material_name):
     pbr_metallic_roughness = material.get('pbrMetallicRoughness', {})
 
     mat = bpy.data.materials.new(material_name)
@@ -255,4 +260,4 @@ def create_material_from_object(op, material, material_name):
 
 
 def create_default_material(op):
-    return create_material_from_object(op, {}, 'glTF Default Material')
+    return create_material_from_properties(op, {}, 'glTF Default Material')
