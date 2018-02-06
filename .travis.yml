@@ -9,7 +9,7 @@ install:
   - blender --version
 
 script:
-  blender --background test/data/renderScene.blend --engine CYCLES --render-output "output.png" -f 1
+  blender -noaudio --background test/data/renderScene.blend --engine CYCLES --render-output "//output" -f 1
 
 deploy:
   provider: pages
