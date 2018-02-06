@@ -40,7 +40,10 @@ def create_buffer_view(op, idx):
 
 def create_accessor(op, idx):
     accessor = op.gltf['accessors'][idx]
+    return create_accessor_from_properties(op, accessor)
 
+
+def create_accessor_from_properties(op, accessor):
     count = accessor['count']
     fmt_char_lut = dict([
         (5120, "b"), # BYTE
@@ -103,10 +106,6 @@ def create_accessor(op, idx):
         stride = default_stride
         buf = [0] * (stride * count)
 
-    if 'sparse' in accessor:
-        #TODO sparse
-        raise Exception("sparse accessors unsupported")
-
     off = accessor.get('byteOffset', 0)
     result = []
     while len(result) < count:
@@ -117,5 +116,28 @@ def create_accessor(op, idx):
             elem = elem[0]
         result.append(elem)
         off += stride
+
+    if 'sparse' in accessor:
+        sparse = accessor['sparse']
+        indices_props = {
+            'count': sparse['count'],
+            'bufferView': sparse['indices']['bufferView'],
+            'byteOffset': sparse['indices'].get('byteOffset', 0),
+            'componentType': sparse['indices']['componentType'],
+            'type': 'SCALAR',
+        }
+        indices = create_accessor_from_properties(op, indices_props)
+        values_props = {
+            'count': sparse['count'],
+            'bufferView': sparse['values']['bufferView'],
+            'byteOffset': sparse['values'].get('byteOffset', 0),
+            'componentType': accessor['componentType'],
+            'type': accessor['type'],
+            'normalized': accessor.get('normalized', False),
+        }
+        values = create_accessor_from_properties(op, values_props)
+
+        for (index, val) in zip(indices, values):
+            result[index] = val
 
     return result
