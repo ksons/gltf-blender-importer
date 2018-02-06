@@ -87,10 +87,17 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
         me.vertex_colors.new('COLOR_0')
     if 'COLOR_0' in attributes:
         colors = op.get_accessor(attributes['COLOR_0'])
+
+        if colors and len(colors[0]) == 4:
+            print(
+                'WARNING! This glTF uses RGBA vertex colors. Blender only supports '
+                'RGB vertex colors. The alpha component will be discarded.'
+            )
+
         color_layer = me.vertex_colors[0].data
         for polygon in me.polygons:
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                color_layer[loop_idx].color = colors[vert_idx]
+                color_layer[loop_idx].color = colors[vert_idx][0:3]
 
     def assign_texcoords(uvs, uv_layer):
         for polygon in me.polygons:
