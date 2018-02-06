@@ -368,7 +368,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
             json_length = struct.unpack_from("<I", contents, offset = 12)[0]
             end_of_json = 20 + json_length
-            self.root = json.loads(contents[20 : end_of_json])
+            self.root = json.loads(contents[20 : end_of_json].decode("utf-8"))
 
             # Check for BIN chunk
             if len(contents) > end_of_json:
@@ -378,7 +378,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             else:
                 self.glb_buffer = None
         else:
-            self.root = json.loads(contents)
+            self.root = json.loads(contents.decode("utf-8"))
             self.glb_buffer = None
 
         scn = bpy.context.scene
