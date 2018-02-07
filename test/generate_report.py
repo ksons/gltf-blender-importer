@@ -4,8 +4,8 @@ This script tests the glTF importer by trying to load the glTF
 sample files. It writes a report about the test results to the
 file report.json in the same directory as this script.
 
-This script is designed to be called from run_tests.py. You
-probably don't want to try running it on its own.
+This script is designed to be run inside Blender by run_tests.py.
+You probably don't want to try running it on its own.
 
 """
 
@@ -31,7 +31,7 @@ def run_tests():
         glob.glob(samples_path + '/**/*.glb', recursive=True)
     )
     for filename in files:
-        print("\nTrying ", filename, "...")
+        print('\nTrying ', filename, '...')
 
         bpy.ops.wm.read_factory_settings()
         try:
@@ -59,10 +59,6 @@ def run_tests():
     return report
 
 
-def main():
-    report = run_tests()
-    with open(report_path, "w+") as report_file:
-        json.dump(report, report_file, indent=4)
-
-
-main()
+report = run_tests()
+with open(report_path, 'w+') as report_file:
+    json.dump(report, report_file, indent=4)

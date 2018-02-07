@@ -1,11 +1,6 @@
 #!/usr/bin/env python
 """Run and report on automated tests for the importer.
 
-Calls Blender to run tests and generate a report.json file in this
-directory with the results. Then prints the results. With the flag
---only-report, skips running the tests and prints the results from
-an existing report.json file.
-
 You can read the test results programmatically (eg. for CI) from the
 report.json file or by examining the exit code of this script. Possible
 values are:
@@ -59,7 +54,7 @@ def fetch_samples():
 
     if not os.path.isdir(samples_path):
         print("Samples still aren't there! Aborting")
-        raise Exception("no samples after initializing submodules")
+        raise Exception('no samples after initializing submodules')
     else:
         print('Good to go!')
         print('This step should only happen once.\n\n')
@@ -77,7 +72,7 @@ def generate_report():
     try:
         subprocess.run(['blender', '--version'], check=True)
     except:
-        print("Check that Blender is installed!")
+        print('Check that Blender is installed!')
         raise
 
     print()
@@ -127,6 +122,7 @@ def print_report():
     failures = []
     ok = '\033[32m' + 'ok' + '\033[0m' # green 'ok'
     failed = '\033[31m' + 'FAILED' + '\033[0m' # red 'FAILED'
+
     for test in tests:
         name = os.path.relpath(test['filename'], samples_path)
         print('import', name, '... ', end='')
@@ -154,15 +150,37 @@ def print_report():
     sys.exit(exit_code)
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Run glTF importer tests.')
-    parser.add_argument('--only-report', action='store_true',
-                        help='print last report (do not run tests)')
-    args = parser.parse_args()
+def print_times():
+    """Prints the tests sorted by import time."""
+    with open(report_path) as f:
+        report = json.load(f)
 
-    if not args.only_report:
-        generate_report()
+    test_passed = lambda test: test['result'] == 'PASSED'
+    tests = list(filter(test_passed, report['tests']))
+    tests.sort(key=lambda test: test['timeElapsed'], reverse=True)
+
+    for (num, test) in enumerate(tests, start=1):
+        name = os.path.relpath(test['filename'], samples_path)
+        print('( #%-3d )  % 2.4fs   %s' % (num, test['timeElapsed'], name))
+
+
+parser = argparse.ArgumentParser(description='Run glTF importer tests.')
+parser.add_argument(
+    '--print-last-report',
+    action='store_true',
+    help="print last report (don't run tests again)",
+)
+parser.add_argument(
+    '--print-last-times',
+    action='store_true',
+    help="show last results sorted by import time (don't run tests again)",
+)
+args = parser.parse_args()
+
+if args.print_last_times:
+    print_times()
+elif args.print_last_report:
     print_report()
-
-
-main()
+else:
+    generate_report()
+    print_report()

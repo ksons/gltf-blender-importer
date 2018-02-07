@@ -1,404 +1,211 @@
-import base64
-import bpy
 import json
 import os
 import struct
-from mathutils import Vector
+
+import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
-from bpy_extras.image_utils import load_image
+
+from io_scene_gltf import animation, buffer, material, mesh, node
 
 bl_info = {
-    "name": "glTF 2.0 Importer",
-    "author": "Kristian Sons",
-    "blender": (2, 71, 0),
-    "location": "File > Import",
-    "description": "",
-    "warning": "",
-    "wiki_url": "",
-    "category": "Import-Export"
+    'name': 'glTF 2.0 Importer',
+    'author': 'Kristian Sons',
+    'blender': (2, 71, 0),
+    'location': 'File > Import',
+    'description': '',
+    'warning': '',
+    'wiki_url': '',
+    'category': 'Import-Export'
 }
 
 
+# Supported glTF version
+GLTF_VERSION = (2, 0)
+# Supported extensions
+EXTENSIONS = set()
+
+
 class ImportGLTF(bpy.types.Operator, ImportHelper):
-    bl_idname = "import_scene.gltf"
+    bl_idname = 'import_scene.gltf'
     bl_label = 'Import glTF'
 
-    filename_ext = ".gltf"
+    filename_ext = '.gltf'
     filter_glob = StringProperty(
-        default="*.gltf;*.glb",
+        default='*.gltf;*.glb',
         options={'HIDDEN'},
     )
 
     def get_buffer(self, idx):
-        buffer = self.root['buffers'][idx]
-
-        if self.glb_buffer and idx == 0 and 'uri' not in buffer:
-            return self.glb_buffer
-
-        buffer_uri = buffer['uri']
-
-        is_data_uri = buffer_uri[:37] == "data:application/octet-stream;base64,"
-        if is_data_uri:
-            return base64.b64decode(buffer_uri[37:])
-
-        buffer_location = os.path.join(self.base_path, buffer_uri)
-
-        if buffer_location in self.file_cache:
-            return self.file_cache[buffer_location]
-
-        print("Loading file", buffer_location)
-        fp = open(buffer_location, "rb")
-        bytes_read = fp.read()
-        fp.close()
-
-        self.file_cache[buffer_location] = bytes_read
-        # print(len(bytes_read), buffer)
-        return bytes_read
+        if idx not in self.buffers:
+            self.buffers[idx] = buffer.create_buffer(self, idx)
+        return self.buffers[idx]
 
     def get_buffer_view(self, idx):
-        buffer_view = self.root['bufferViews'][idx]
-        buffer = self.get_buffer(buffer_view["buffer"])
-        byte_offset = buffer_view.get("byteOffset", 0)
-        byte_length = buffer_view["byteLength"]
-        result = buffer[byte_offset:byte_offset + byte_length]
-        stride = buffer_view.get('byteStride', None)
-        # print("view", len(result))
-        return (result, stride)
+        if idx not in self.buffer_views:
+            self.buffer_views[idx] = buffer.create_buffer_view(self, idx)
+        return self.buffer_views[idx]
 
     def get_accessor(self, idx):
-        accessor = self.root['accessors'][idx]
+        if idx not in self.accessors:
+            self.accessors[idx] = buffer.create_accessor(self, idx)
+        return self.accessors[idx]
 
-        count = accessor['count']
-        fmt_char_lut = dict([
-            (5120, "b"), # BYTE
-            (5121, "B"), # UNSIGNED_BYTE
-            (5122, "h"), # SHORT
-            (5123, "H"), # UNSIGNED_SHORT
-            (5125, "I"), # UNSIGNED_INT
-            (5126, "f")  # FLOAT
-        ])
-        fmt_char = fmt_char_lut[accessor['componentType']]
-        component_size = struct.calcsize(fmt_char)
-        num_components_lut = {
-            "SCALAR": 1,
-            "VEC2": 2,
-            "VEC3": 3,
-            "VEC4": 4,
-            "MAT2": 4,
-            "MAT3": 9,
-            "MAT4": 16
-        }
-        num_components = num_components_lut[accessor['type']]
-        fmt = "<" + (fmt_char * num_components)
-        default_stride = struct.calcsize(fmt)
+    def get_material(self, idx):
+        if idx not in self.materials:
+            self.materials[idx] = material.create_material(self, idx)
+        return self.materials[idx]
 
-        # Special layouts for certain formats; see the section about
-        # data alignment in the glTF 2.0 spec.
-        if accessor['type'] == 'MAT2' and component_size == 1:
-            fmt = "<" + \
-                (fmt_char * 2) + "xx" + \
-                (fmt_char * 2)
-            default_stride = 8
-        elif accessor['type'] == 'MAT3' and component_size == 1:
-            fmt = "<" + \
-                (fmt_char * 3) + "x" + \
-                (fmt_char * 3) + "x" + \
-                (fmt_char * 3)
-            default_stride = 12
-        elif accessor['type'] == 'MAT3' and component_size == 2:
-            fmt = "<" + \
-                (fmt_char * 3) + "xx" + \
-                (fmt_char * 3) + "xx" + \
-                (fmt_char * 3)
-            default_stride = 24
+    def get_default_material(self):
+        if not self.default_material:
+            self.default_material = material.create_default_material(self)
+        return self.default_material
 
-        normalize = None
-        if 'normalized' in accessor and accessor['normalized']:
-            # Technically, there are two slightly different normalization
-            # formulas used in OpenGL for signed integers.
-            #   1) max(x/(2^b - 1), -1)
-            #   2) (2x + 1)/(2^b - 1)
-            # (1) is used by recent OpenGL versions. (2) is used by older
-            # versions, including WebGL (the problem with (2) is it is
-            # never zero). We'll use (2) since it's what WebGL should do.
-            normalize_lut = dict([
-                (5120, lambda x: (2*x + 1) / (2**8 - 1)), # BYTE
-                (5121, lambda x: x / (2*8 - 1)), # UNSIGNED_BYTE
-                (5122, lambda x: (2*x + 1) / (2**16 - 1)), # SHORT
-                (5123, lambda x: x / (2*16 - 1)), # UNSIGNED_SHORT
-                (5125, lambda x: x / (2**32 - 1)), # UNSIGNED_INT
-            ])
-            normalize = normalize_lut[accessor['componentType']]
+    def get_mesh(self, idx):
+        if idx not in self.meshes:
+            self.meshes[idx] = mesh.create_mesh(self, idx)
+        return self.meshes[idx]
 
-        if 'bufferView' in accessor:
-            (buf, stride) = self.get_buffer_view(accessor['bufferView'])
-            stride = stride or default_stride
-        else:
-            stride = default_stride
-            buf = [0] * (stride * count)
+    def get_camera(self, idx):
+        if idx not in self.cameras:
+            #TODO actually handle cameras
+            camera = self.gltf['cameras'][idx]
+            name = camera.get('name', 'cameras[%d]' % idx)
+            self.cameras[idx] = bpy.data.cameras.new(name)
+        return self.cameras[idx]
 
-        if 'sparse' in accessor:
-            #TODO sparse
-            raise Exception("sparse accessors unsupported")
+    def generate_actions(self):
+        if 'animations' in self.gltf:
+            for idx in range(0, len(self.gltf['animations'])):
+                animation.create_action(self, idx)
 
-        off = accessor.get('byteOffset', 0)
-        result = []
-        while len(result) < count:
-            elem = struct.unpack_from(fmt, buf, offset = off)
-            if normalize:
-                elem = tuple([normalize(x) for x in elem])
-            if num_components == 1:
-                elem = elem[0]
-            result.append(elem)
-            off += stride
-
-        return result
-
-    def create_texture(self, idx, name, tree):
-        texture = self.root['textures'][idx]
-        source = self.root['images'][texture['source']]
-
-        tex_image = tree.nodes.new("ShaderNodeTexImage")
-
-        if 'uri' in source:
-            uri = source['uri']
-            is_data_uri = uri[:5] == "data:"
-            if is_data_uri:
-                #TODO how do you load an image from memory?
+    def check_version(self):
+        def str_to_version(s):
+            try:
+                version = tuple(int(x) for x in s.split('.'))
+                if len(version) >= 2:
+                    return version
+            except Exception:
                 pass
-            else:
-                image_location = os.path.join(self.base_path, uri)
-                tex_image.image = load_image(image_location)
 
-            tex_image.label = name
+            raise Exception('unknown version format: %s' % s)
+
+        asset = self.gltf['asset']
+
+        if 'minVersion' in asset:
+            min_version = str_to_version(asset['minVersion'])
+            supported = GLTF_VERSION >= min_version
+            if not supported:
+                raise Exception('unsupported minimum version: %s' % min_version)
         else:
-            #TODO load image from buffer view
-            pass
+            version = str_to_version(asset['version'])
+            # Check only major version; we should be backwards- and forwards-compatible
+            supported = version[0] == GLTF_VERSION[0]
+            if not supported:
+                raise Exception('unsupported version: %s' % version)
 
-        return tex_image
+    def check_required_extensions(self):
+        #TODO the below works but it will make the tests fails.
+        # Can be uncommented when KhronosGroup/glTF-Sample-Models#144
+        # is closed OR we implement pbrSpecularGlossiness.
+        pass
 
-    def create_material(self, idx):
-        material = self.root['materials'][idx]
-        material_name = material.get('name', 'Material')
+        #for ext in self.gltf.get('extensionsRequired', []):
+        #    if ext not in EXTENSIONS:
+        #        raise Exception('unsupported extension was required: %s' % ext)
 
-        if material_name in self.materials:
-            return self.materials[material_name]
 
-        print("Creating material", material_name)
-        mat = bpy.data.materials.new(material_name)
-        self.materials[material_name] = mat
-        mat.use_nodes = True
-        tree = mat.node_tree
-        links = tree.links
-
-        for n in tree.nodes:
-            tree.nodes.remove(n)
-
-        normal_inputs = []
-
-        mo = tree.nodes.new('ShaderNodeOutputMaterial')
-        mo.location = 0, 0
-
-        metal_mix = tree.nodes.new('ShaderNodeMixShader')
-        metal_mix.location = -200, 0
-
-        mix = tree.nodes.new('ShaderNodeMixShader')
-        mix.location = -400, 0
-
-        glossy = tree.nodes.new('ShaderNodeBsdfGlossy')
-        glossy.distribution = 'GGX'
-        glossy.location = -600, -25
-        normal_inputs.append(glossy.inputs[2])
-
-        metal_glossy = tree.nodes.new('ShaderNodeBsdfGlossy')
-        metal_glossy.distribution = 'GGX'
-        metal_glossy.location = -400, -150
-        normal_inputs.append(metal_glossy.inputs[2])
-
-        diffuse = tree.nodes.new('ShaderNodeBsdfDiffuse')
-        diffuse.location = -600, 200
-        normal_inputs.append(diffuse.inputs[2])
-
-        fresnel = tree.nodes.new('ShaderNodeFresnel')
-        fresnel.location = -600, 400
-
-        links.new(metal_mix.outputs[0], mo.inputs[0])
-        links.new(mix.outputs[0], metal_mix.inputs[1])
-        links.new(metal_glossy.outputs[0], metal_mix.inputs[2])
-        links.new(fresnel.outputs[0], mix.inputs[0])
-        links.new(diffuse.outputs[0], mix.inputs[1])
-        links.new(glossy.outputs[0], mix.inputs[2])
-
-        if 'pbrMetallicRoughness' in material:
-            pbrMetallicRoughness = material['pbrMetallicRoughness']
-            if 'baseColorTexture' in pbrMetallicRoughness:
-                idx = pbrMetallicRoughness['baseColorTexture']['index']
-                tex = self.create_texture(idx, 'baseColorTexture', tree)
-                tex.location = -800, 50
-                links.new(tex.outputs[0], diffuse.inputs[0])
-                links.new(tex.outputs[0], metal_glossy.inputs[0])
-
-            if 'metallicRoughnessTexture' in pbrMetallicRoughness:
-                idx = pbrMetallicRoughness['metallicRoughnessTexture']['index']
-                tex = self.create_texture(idx, 'metallicRoughnessTexture',
-                                          tree)
-                tex.color_space = 'NONE'
-                tex.location = -1000, 200
-
-                separator = tree.nodes.new('ShaderNodeSeparateRGB')
-                separator.location = -800, 200
-
-                links.new(tex.outputs[0], separator.inputs[0])
-                links.new(separator.outputs[0], metal_mix.inputs[0])
-                links.new(separator.outputs[1], diffuse.inputs[1])
-                links.new(separator.outputs[1], glossy.inputs[1])
-                links.new(separator.outputs[1], metal_glossy.inputs[1])
-
-        if 'emissiveTexture' in material:
-            idx = material['emissiveTexture']['index']
-            tex = self.create_texture(idx, 'emissiveTexture', tree)
-            tex.location = -200, 250
-
-            emissive = tree.nodes.new('ShaderNodeEmission')
-            emissive.location = 0, 50
-
-            add = tree.nodes.new('ShaderNodeAddShader')
-            add.location = 200, 0
-            mo.location = 400, 0
-
-            links.new(tex.outputs[0], emissive.inputs[0])
-            links.new(emissive.outputs[0], add.inputs[0])
-            links.new(mo.inputs[0].links[0].from_socket, add.inputs[1])
-            links.new(add.outputs[0], mo.inputs[0])
-
-        if 'normalTexture' in material:
-            idx = material['normalTexture']['index']
-            tex = self.create_texture(idx, 'normalTexture', tree)
-            tex.color_space = 'NONE'
-            tex.location = -1000, -100
-
-            normal_map = tree.nodes.new('ShaderNodeNormalMap')
-            normal_map.location = -800, -200
-
-            links.new(tex.outputs[0], normal_map.inputs[1])
-            for normal_input in normal_inputs:
-                links.new(normal_map.outputs[0], normal_input)
-
-        return mat
-
-    def create_translation(self, obj, node):
-        if 'translation' in node:
-            obj.location = Vector(node['translation'])
-        if 'scale' in node:
-            obj.scale = Vector(node['scale'])
-
-    def create_mesh(self, node, mesh):
-
-        me = bpy.data.meshes.new(mesh.get('name', 'Mesh'))
-        ob = bpy.data.objects.new(node.get('name', 'Node'), me)
-
-        self.create_translation(ob, node)
-
-        primitives = mesh['primitives'][0]
-        material = self.create_material(primitives['material'])
-        me.materials.append(material)
-        indices = self.get_accessor(primitives['indices'])
-        faces = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
-
-        attributes = primitives['attributes']
-        positions = self.get_accessor(attributes['POSITION'])
-
-        me.from_pydata(positions, [], faces)
-        me.validate()
-
-        for polygon in me.polygons:
-            polygon.use_smooth = True
-
-        normals = self.get_accessor(attributes['NORMAL'])
-        for i, vertex in enumerate(me.vertices):
-            vertex.normal = normals[i]
-
-        if 'TEXCOORD_0' in attributes:
-            uvs = self.get_accessor(attributes['TEXCOORD_0'])
-            me.uv_textures.new("TEXCOORD_0")
-            for i, uv_loop in enumerate(me.uv_layers[0].data):
-                uv = uvs[indices[i]]
-                me.uv_layers[0].data[i].uv = (uv[0], -uv[1])
-
-        me.update()
-        return ob
-
-    def create_group(self, node, parent):
-        # print(node)
-        if 'mesh' in node:
-            ob = self.create_mesh(node, self.root['meshes'][node['mesh']])
-        else:
-            ob = bpy.data.objects.new(node.get('name', 'Node'), None)
-            self.create_translation(ob, node)
-
-        ob.parent = parent
-        bpy.context.scene.objects.link(ob)
-        bpy.context.scene.update()
-
-        if 'children' in node:
-            children = node['children']
-            for idx in children:
-                self.create_group(self.root['nodes'][idx], ob)
-
-    def execute(self, context):
+    def load(self):
         filename = self.filepath
         self.base_path = os.path.dirname(filename)
-        self.materials = {}
-        self.file_cache = {}
 
-        fp = open(filename, "rb")
-        contents = fp.read()
-        fp.close()
+        with open(filename, 'rb') as f:
+            contents = f.read()
 
         # Use magic number to detect GLB files.
-        is_glb = contents[:4] == b"glTF"
+        is_glb = contents[:4] == b'glTF'
 
         if is_glb:
-            print("Detected GLB file")
-
-            version = struct.unpack_from("<I", contents, offset = 4)[0]
-            if version != 2:
-                raise Exception("GLB: version not supported: %d" % version)
-
-            json_length = struct.unpack_from("<I", contents, offset = 12)[0]
-            end_of_json = 20 + json_length
-            self.root = json.loads(contents[20 : end_of_json].decode("utf-8"))
-
-            # Check for BIN chunk
-            if len(contents) > end_of_json:
-                bin_length = struct.unpack_from("<I", contents, offset = end_of_json)[0]
-                end_of_bin = end_of_json + 8 + bin_length
-                self.glb_buffer = contents[end_of_json + 8 : end_of_bin]
-            else:
-                self.glb_buffer = None
+            self.parse_glb(contents)
         else:
-            self.root = json.loads(contents.decode("utf-8"))
-            self.glb_buffer = None
+            self.gltf = json.loads(contents.decode('utf-8'))
 
-        scn = bpy.context.scene
-        scn.render.engine = 'CYCLES'
-        scn.world.use_nodes = True
+    def parse_glb(self, contents):
+        header = struct.unpack_from('<4sII', contents)
+        glb_version = header[1]
+        if glb_version != 2:
+            raise Exception('GLB: version not supported: %d' % version)
 
-        sceneIdx = self.root['scene']
-        nodes = self.root['nodes']
+        def parse_chunk(offset):
+            header = struct.unpack_from('<I4s', contents, offset=offset)
+            data_len = header[0]
+            ty = header[1]
+            data = contents[offset + 8 : offset + 8 + data_len]
+            next_offset = offset + 8 + data_len
+            return { 'type': ty, 'data': data, 'next_offset': next_offset }
 
-        scene = self.root['scenes'][sceneIdx]
+        offset = 12 # end of header
 
-        for idx in scene['nodes']:
-            self.create_group(nodes[idx], None)
+        json_chunk = parse_chunk(offset)
+        if json_chunk['type'] != b'JSON':
+            raise Exception('GLB: JSON chunk must be first')
+        self.gltf = json.loads(json_chunk['data'].decode('utf-8'))
+
+        offset = json_chunk['next_offset']
+
+        while offset < len(contents):
+            chunk = parse_chunk(offset)
+
+            # Ignore unknown chunks
+            if chunk['type'] != b'BIN\0':
+                offset = chunk['next_offset']
+                continue
+
+            if chunk['type'] == b'JSON':
+                raise Exception('GLB: Too many JSON chunks, should be 1')
+
+            if self.glb_buffer:
+                raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
+
+            self.glb_buffer = chunk['data']
+
+            offset = chunk['next_offset']
+
+    def execute(self, context):
+        self.glb_buffer = None
+        self.buffers = {}
+        self.buffer_views = {}
+        self.accessors = {}
+        self.cameras = {}
+        self.default_material = None
+        self.pbr_group = None
+        self.materials = {}
+        self.meshes = {}
+        self.scenes = {}
+        # Indices of the root nodes
+        self.root_idxs = []
+        # Maps the index of a root node to the objects in that tree
+        self.root_to_objects = {}
+        # Maps a node index to the corresponding bone's name
+        self.node_to_bone_name = {}
+
+        self.load()
+
+        self.check_version()
+        self.check_required_extensions()
+
+        node.generate_scenes(self)
+        self.generate_actions()
+
+        if 'scene' in self.gltf:
+            bpy.context.screen.scene = self.scenes[self.gltf['scene']]
 
         return {'FINISHED'}
 
 
 # Add to a menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportGLTF.bl_idname, text="glTF JSON (.gltf/.glb)")
+    self.layout.operator(ImportGLTF.bl_idname, text='glTF JSON (.gltf/.glb)')
 
 
 def register():
@@ -413,5 +220,5 @@ def unregister():
     bpy.types.INFO_MT_file_import.remove(menu_func_import)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     register()
