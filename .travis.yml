@@ -9,7 +9,7 @@ install:
   - blender --version
 
 script:
-  blender -noaudio --background test/data/renderScene.blend --engine CYCLES --render-output "//output" -f 1
+  python test/runtest.py
 
 deploy:
   provider: pages
