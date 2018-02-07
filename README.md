@@ -1,4 +1,7 @@
 # gltf-blender-importer
+
+[![Build Status](https://travis-ci.org/ksons/gltf-blender-importer.svg?branch=master)](https://travis-ci.org/ksons/gltf-blender-importer)
+
 Blender importer for glTF 2.0 (alpha)
 
 Until now, only designed to load the glTF 2.0 [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0). Expect updates soon; feel free to contribute!
