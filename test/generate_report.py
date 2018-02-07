@@ -18,7 +18,7 @@ import bpy
 
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
-samples_path = os.path.join(base_dir, 'glTF-Sample-Models/2.0/')
+samples_path = os.path.join(base_dir, 'glTF-Sample-Models', '2.0')
 report_path = os.path.join(base_dir, 'report.json')
 
 
