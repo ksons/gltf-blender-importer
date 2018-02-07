@@ -4,39 +4,42 @@ import os
 from subprocess import Popen, DEVNULL, run
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
-samples_path = os.path.join(base_dir, 'glTF-Sample-Models', '2.0')
+samples_path = os.path.join(base_dir, os.pardir, 'glTF-Sample-Models', '2.0')
 test_script = os.path.join(base_dir, 'import_file.py')
+
 
 class SampleModelRunTests(unittest.TestCase):
     pass
 
+
 def test_generator(filename):
     def test(self):
-        scripts_dir = os.path.join(base_dir, os.pardir)
+        scripts_dir = os.path.join(base_dir, os.pardir, os.pardir)
         env = os.environ.copy()
         env['BLENDER_USER_SCRIPTS'] = scripts_dir
-        
-        
+
         proc = run(
             [
                 'blender',
                 '--python-exit-code', '1',
-                '--background', # run UI-less
-                '--factory-startup', # factory settings
-                '--addons', 'io_scene_gltf', # enable the addon
-                '--python', test_script, # run the test script
+                '--background',  # run UI-less
+                '--factory-startup',  # factory settings
+                '--addons', 'io_scene_gltf',  # enable the addon
+                '--python', test_script,  # run the test script
                 '-noaudio',
                 '--',
                 filename
-    
+
             ],
             env=env,
             stdout=DEVNULL,
             check=False
         )
         self.assertEqual(proc.returncode, 0, "Blender quit")
+        print()
 
     return test
+
 
 if __name__ == '__main__':
     files = (

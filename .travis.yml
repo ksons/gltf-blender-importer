@@ -9,7 +9,7 @@ install:
   - blender --version
 
 script:
-  python test/runtest.py
+  python test/travis/runtest.py
 
 deploy:
   provider: pages
