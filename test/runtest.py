@@ -35,7 +35,6 @@ def test_generator(filename):
             check=False
         )
         self.assertEqual(proc.returncode, 0, "Blender quit")
-        print(proc.returncode)
 
     return test
 
