@@ -23,7 +23,7 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 samples_path = os.path.join(base_dir, 'glTF-Sample-Models', '2.0')
 report_path = os.path.join(base_dir, 'report.json')
 test_script = os.path.join(base_dir, 'generate_report.py')
-src_addon_dir = os.path.join(base_dir, os.pardir, 'io_scene_gltf')
+scripts_dir = os.path.join(base_dir, os.pardir)
 
 
 def fetch_samples():
@@ -78,32 +78,25 @@ def generate_report():
     print()
 
     # We're going to try to run Blender in a clean-ish environment for
-    # testing. We don't want to use whatever the user has installed for
-    # the glTF importer addon because it might be old, etc; we want to
-    # be sure we're using the current state of ../io_scene_gltf. So
-    # create a new directory to use as scripts/addons/, symlink our
-    # addon into it, and tell Blender to use that.
-    with tempfile.TemporaryDirectory() as scripts_dir:
-        addons_dir = os.path.join(scripts_dir, 'addons')
-        os.mkdir(addons_dir)
-        blender_addon_path = os.path.join(addons_dir, 'io_scene_gltf')
-        os.symlink(src=src_addon_dir, dst=blender_addon_path)
+    # testing. we want to be sure we're using the current state of 
+    # 'io_scene_gltf'. The user scripts variable expects an addons/plugin
+    # directory structure which we have in the projects root directory
+    env = os.environ.copy()
+    env['BLENDER_USER_SCRIPTS'] = scripts_dir
+    #TODO Should we worry about BLENDER_SYSTEM_SCRIPTS, etc?
 
-        env = os.environ.copy()
-        env['BLENDER_USER_SCRIPTS'] = scripts_dir
-        #TODO Should we worry about BLENDER_SYSTEM_SCRIPTS, etc?
-
-        subprocess.run(
-            [
-                'blender',
-                '--background', # run UI-less
-                '--factory-startup', # factory settings
-                '--addons', 'io_scene_gltf', # enable the addon
-                '--python', test_script # run the test script
-            ],
-            env=env,
-            check=True
-        )
+    subprocess.run(
+        [
+            'blender',
+            '-noaudio', # sound ssystem to None (less output on stdout)
+            '--background', # run UI-less
+            '--factory-startup', # factory settings
+            '--addons', 'io_scene_gltf', # enable the addon
+            '--python', test_script # run the test script
+        ],
+        env=env,
+        check=True
+    )
 
 
 def print_report():
