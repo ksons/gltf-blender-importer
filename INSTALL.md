@@ -56,6 +56,11 @@ folder, symbolically link it. On Linux, this is done with
     $ cd <YOUR ADDON FOLDER FROM STEP 2>
     $ ln -s <PATH TO THE io_scene_gltf FOLDER>
 
+On Windows, this can also be done with
+
+    $ cd <YOUR ADDON FOLDER FROM STEP 2>
+    $ mklink io_scene_gltf <PATH TO THE io_scene_gltf FOLDER>
+
 You can now edit the addon files, check out a different branch, etc. and you
 just have to restart Blender for it to be using the new version of the
 addon in your repo.
