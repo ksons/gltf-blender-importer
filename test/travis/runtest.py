@@ -1,7 +1,7 @@
 import unittest
 import glob
 import os
-from subprocess import Popen, DEVNULL, run
+from subprocess import DEVNULL, run
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 samples_path = os.path.join(base_dir, os.pardir, 'glTF-Sample-Models', '2.0')

@@ -16,7 +16,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -31,24 +30,24 @@ def fetch_samples():
     """
     try:
         print("Checking if we're in a git repo...")
-        result = subprocess.run(
+        subprocess.run(
             ['git', 'rev-parse'],
             cwd=base_dir,
             check=True
         )
-    except:
+    except BaseException:
         print('Is git installed?')
         print('Did you get this repo through git (as opposed to eg. a zip)?')
         raise
 
     try:
         print("Initializing submodules (be patient)...")
-        result = subprocess.run(
+        subprocess.run(
             ['git', 'submodule', 'update', '--init', '--recursive'],
             cwd=base_dir,
             check=True
         )
-    except:
+    except BaseException:
         print("Couldn't init submodules. Aborting")
         raise
 
@@ -71,28 +70,28 @@ def generate_report():
     # Print Blender version for debugging
     try:
         subprocess.run(['blender', '--version'], check=True)
-    except:
+    except BaseException:
         print('Check that Blender is installed!')
         raise
 
     print()
 
     # We're going to try to run Blender in a clean-ish environment for
-    # testing. we want to be sure we're using the current state of 
+    # testing. we want to be sure we're using the current state of
     # 'io_scene_gltf'. The user scripts variable expects an addons/plugin
     # directory structure which we have in the projects root directory
     env = os.environ.copy()
     env['BLENDER_USER_SCRIPTS'] = scripts_dir
-    #TODO Should we worry about BLENDER_SYSTEM_SCRIPTS, etc?
+    # TODO: Should we worry about BLENDER_SYSTEM_SCRIPTS, etc?
 
     subprocess.run(
         [
             'blender',
-            '-noaudio', # sound ssystem to None (less output on stdout)
-            '--background', # run UI-less
-            '--factory-startup', # factory settings
-            '--addons', 'io_scene_gltf', # enable the addon
-            '--python', test_script # run the test script
+            '-noaudio',  # sound ssystem to None (less output on stdout)
+            '--background',  # run UI-less
+            '--factory-startup',  # factory settings
+            '--addons', 'io_scene_gltf',  # enable the addon
+            '--python', test_script  # run the test script
         ],
         env=env,
         check=True
@@ -113,8 +112,8 @@ def print_report():
     num_passed = 0
     num_failed = 0
     failures = []
-    ok = '\033[32m' + 'ok' + '\033[0m' # green 'ok'
-    failed = '\033[31m' + 'FAILED' + '\033[0m' # red 'FAILED'
+    ok = '\033[32m' + 'ok' + '\033[0m'  # green 'ok'
+    failed = '\033[31m' + 'FAILED' + '\033[0m'  # red 'FAILED'
 
     for test in tests:
         name = os.path.relpath(test['filename'], samples_path)
@@ -148,7 +147,7 @@ def print_times():
     with open(report_path) as f:
         report = json.load(f)
 
-    test_passed = lambda test: test['result'] == 'PASSED'
+    def test_passed(test): return test['result'] == 'PASSED'
     tests = list(filter(test_passed, report['tests']))
     tests.sort(key=lambda test: test['timeElapsed'], reverse=True)
 

@@ -68,7 +68,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def get_camera(self, idx):
         if idx not in self.cameras:
-            #TODO actually handle cameras
+            # TODO: actually handle cameras
             camera = self.gltf['cameras'][idx]
             name = camera.get('name', 'cameras[%d]' % idx)
             self.cameras[idx] = bpy.data.cameras.new(name)
@@ -105,15 +105,14 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
                 raise Exception('unsupported version: %s' % version)
 
     def check_required_extensions(self):
-        #TODO the below works but it will make the tests fails.
+        # TODO: the below works but it will make the tests fails.
         # Can be uncommented when KhronosGroup/glTF-Sample-Models#144
         # is closed OR we implement pbrSpecularGlossiness.
         pass
 
-        #for ext in self.gltf.get('extensionsRequired', []):
+        # for ext in self.gltf.get('extensionsRequired', []):
         #    if ext not in EXTENSIONS:
         #        raise Exception('unsupported extension was required: %s' % ext)
-
 
     def load(self):
         filename = self.filepath
@@ -134,17 +133,17 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         header = struct.unpack_from('<4sII', contents)
         glb_version = header[1]
         if glb_version != 2:
-            raise Exception('GLB: version not supported: %d' % version)
+            raise Exception('GLB: version not supported: %d' % glb_version)
 
         def parse_chunk(offset):
             header = struct.unpack_from('<I4s', contents, offset=offset)
             data_len = header[0]
             ty = header[1]
-            data = contents[offset + 8 : offset + 8 + data_len]
+            data = contents[offset + 8: offset + 8 + data_len]
             next_offset = offset + 8 + data_len
-            return { 'type': ty, 'data': data, 'next_offset': next_offset }
+            return {'type': ty, 'data': data, 'next_offset': next_offset}
 
-        offset = 12 # end of header
+        offset = 12  # end of header
 
         json_chunk = parse_chunk(offset)
         if json_chunk['type'] != b'JSON':

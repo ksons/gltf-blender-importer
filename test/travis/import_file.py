@@ -9,15 +9,12 @@ probably don't want to try running it on its own.
 
 """
 
-import glob
-import json
 import os
 import sys
-import bpy 
-
-from timeit import default_timer as timer
+import bpy
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
+
 
 def run_tests():
     filename = sys.argv[-1]
@@ -25,7 +22,7 @@ def run_tests():
 
     bpy.ops.wm.read_factory_settings()
     bpy.ops.import_scene.gltf(filepath=filename)
-   
+
 
 def main():
     run_tests()

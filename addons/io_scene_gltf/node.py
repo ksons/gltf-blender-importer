@@ -1,5 +1,4 @@
 import bpy
-import math
 from mathutils import Matrix, Quaternion, Vector
 
 """
@@ -28,17 +27,19 @@ linked in, but only has those meshes and cameras linked in that are "visible" in
 that scene (ie. are descendants of one of the roots of the scene).
 """
 
+
 def convert_matrix(m):
     """Converts a glTF matrix to a Blender matrix."""
     result = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
-    result.transpose() # column-major to row-major
+    result.transpose()  # column-major to row-major
     return result
 
 
 def convert_quaternion(q):
     """Converts a glTF quaternion to Blender a quaternion."""
-     # xyzw -> wxyz
+    # xyzw -> wxyz
     return Quaternion([q[3], q[0], q[1], q[2]])
+
 
 def get_transform(node):
     if 'matrix' in node:
@@ -70,7 +71,7 @@ def create_objects(op, idx, root_idx):
         ob = bpy.data.objects.new(name, data)
         ob.parent = op.armature_ob
 
-        #TODO make the object a child of the bone instead? Making it a
+        # TODO: make the object a child of the bone instead? Making it a
         # child puts it at the tail of the bone and we want it at the
         # head. We'd just need to translate it along the length of the
         # bone.
@@ -134,7 +135,7 @@ def generate_armature_object(op):
     op.armature_ob = arma_ob
 
     # Turn glTF up (+Y) into Blender up (+Z)
-    #TODO is this right?
+    # TODO is this right?
     arma_ob.matrix_local = Matrix([
         [1, 0, 0, 0],
         [0, 0, -1, 0],
@@ -155,7 +156,7 @@ def generate_armature_object(op):
         bone.head = mat * Vector((0, 0, 0))
         bone.tail = mat * Vector((0, 1, 0))
         bone.align_roll(mat * Vector((0, 0, 1)) - bone.head)
-        #NOTE bones don't seem to have non-uniform scaling.
+        # NOTE: bones don't seem to have non-uniform scaling.
         # This appears to be a serious problem for us.
 
         op.node_to_bone_name[idx] = bone.name
@@ -188,7 +189,7 @@ def create_scene(op, idx):
     scn = bpy.context.scene
     scn.name = name
     scn.render.engine = 'CYCLES'
-    #scn.world.use_nodes = True
+    # scn.world.use_nodes = True
 
     # Always link in the whole node forest
     scn.objects.link(op.armature_ob)
