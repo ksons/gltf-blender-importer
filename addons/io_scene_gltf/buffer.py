@@ -2,6 +2,7 @@ import base64
 import os
 import struct
 
+
 def create_buffer(op, idx):
     buffer = op.gltf['buffers'][idx]
 
@@ -19,7 +20,7 @@ def create_buffer(op, idx):
             return base64.b64decode(base64_data)
 
     # If we got here, assume it's a filepath
-    buffer_location = os.path.join(op.base_path, uri) #TODO absolute paths?
+    buffer_location = os.path.join(op.base_path, uri)  # TODO: absolute paths?
     print('Loading file', buffer_location)
     with open(buffer_location, 'rb') as fp:
         bytes_read = fp.read()
@@ -46,12 +47,12 @@ def create_accessor(op, idx):
 def create_accessor_from_properties(op, accessor):
     count = accessor['count']
     fmt_char_lut = dict([
-        (5120, 'b'), # BYTE
-        (5121, 'B'), # UNSIGNED_BYTE
-        (5122, 'h'), # SHORT
-        (5123, 'H'), # UNSIGNED_SHORT
-        (5125, 'I'), # UNSIGNED_INT
-        (5126, 'f')  # FLOAT
+        (5120, 'b'),  # BYTE
+        (5121, 'B'),  # UNSIGNED_BYTE
+        (5122, 'h'),  # SHORT
+        (5123, 'H'),  # UNSIGNED_SHORT
+        (5125, 'I'),  # UNSIGNED_INT
+        (5126, 'f')   # FLOAT
     ])
     fmt_char = fmt_char_lut[accessor['componentType']]
     component_size = struct.calcsize(fmt_char)
@@ -91,11 +92,11 @@ def create_accessor_from_properties(op, accessor):
     normalize = None
     if 'normalized' in accessor and accessor['normalized']:
         normalize_lut = dict([
-            (5120, lambda x: max(x / (2**7 - 1), -1)), # BYTE
-            (5121, lambda x: x / (2**8 - 1)), # UNSIGNED_BYTE
-            (5122, lambda x: max(x / (2**15 - 1), -1)), # SHORT
-            (5123, lambda x: x / (2**16 - 1)), # UNSIGNED_SHORT
-            (5125, lambda x: x / (2**32 - 1)) # UNSIGNED_INT
+            (5120, lambda x: max(x / (2**7 - 1), -1)),   # BYTE
+            (5121, lambda x: x / (2**8 - 1)),            # UNSIGNED_BYTE
+            (5122, lambda x: max(x / (2**15 - 1), -1)),  # SHORT
+            (5123, lambda x: x / (2**16 - 1)),           # UNSIGNED_SHORT
+            (5125, lambda x: x / (2**32 - 1))            # UNSIGNED_INT
         ])
         normalize = normalize_lut[accessor['componentType']]
 
@@ -109,7 +110,7 @@ def create_accessor_from_properties(op, accessor):
     off = accessor.get('byteOffset', 0)
     result = []
     while len(result) < count:
-        elem = struct.unpack_from(fmt, buf, offset = off)
+        elem = struct.unpack_from(fmt, buf, offset=off)
         if normalize:
             elem = tuple([normalize(x) for x in elem])
         if num_components == 1:

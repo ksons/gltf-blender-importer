@@ -3,6 +3,7 @@ from functools import reduce
 import bmesh
 import bpy
 
+
 def primitive_to_mesh(op, primitive, all_attributes, material_index):
     """Convert a glTF primitive object to a Blender mesh.
 
@@ -24,7 +25,6 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     edges = []
     faces = []
 
-
     # Generate the topology
 
     mode = primitive.get('mode', 4)
@@ -34,7 +34,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     else:
         indices = range(0, len(verts))
 
-    #TODO only mode TRIANGLES is tested!!
+    # TODO: only mode TRIANGLES is tested!!
     if mode == 0:
         # POINTS
         pass
@@ -79,23 +79,17 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     me.from_pydata(verts, edges, faces)
     me.validate()
 
-
     # Assign material
-
     for polygon in me.polygons:
         polygon.material_index = material_index
 
-
     # Assign normals
-
     if 'NORMAL' in attributes:
         normals = op.get_accessor(attributes['NORMAL'])
         for i, vertex in enumerate(me.vertices):
             vertex.normal = normals[i]
 
-
     # Assign colors
-
     if 'COLOR_0' in all_attributes:
         me.vertex_colors.new('COLOR_0')
     if 'COLOR_0' in attributes:
@@ -111,9 +105,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
                 color_layer[loop_idx].color = colors[vert_idx][0:3]
 
-
     # Assign texcoords
-
     def assign_texcoords(uvs, uv_layer):
         for polygon in me.polygons:
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
@@ -128,14 +120,12 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     if 'TEXCOORD_1' in attributes:
         assign_texcoords(op.get_accessor(attributes['TEXCOORD_1']), me.uv_layers[1].data)
 
-
     # Assign joints by generating vertex groups
-
     if 'JOINTS_0' in attributes and 'WEIGHTS_0' in attributes:
         # Don't seem to need to deal with all_attributes here.
         # The only way I could find to set vertex groups was by
         # round-tripping through a bmesh.
-        #TODO find a better way?
+        # TODO: find a better way?
         joints = op.get_accessor(attributes['JOINTS_0'])
         weights = op.get_accessor(attributes['WEIGHTS_0'])
         bme = bmesh.new()
@@ -160,7 +150,7 @@ def create_mesh(op, idx):
 
     # Find the union of the attributes used by each primitive.
     attributes = (set(primitive['attributes'].keys()) for primitive in primitives)
-    all_attributes = reduce(lambda x,y: x.union(y), attributes)
+    all_attributes = reduce(lambda x, y: x.union(y), attributes)
 
     bme = bmesh.new()
     for i, primitive in enumerate(mesh['primitives']):
@@ -177,7 +167,7 @@ def create_mesh(op, idx):
             material = op.get_default_material()
         me.materials.append(material)
 
-    #TODO Do we need this?
+    # TODO: Do we need this?
     for polygon in me.polygons:
         polygon.use_smooth = True
 

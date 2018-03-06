@@ -16,7 +16,7 @@ def do_with_temp_file(contents, func):
         tmp = tempfile.NamedTemporaryFile(delete=False)
         path = tmp.name
         tmp.write(contents)
-        tmp.close() # Have to close so func can open it
+        tmp.close()  # Have to close so func can open it
         return func(path)
     finally:
         if path:
@@ -38,7 +38,7 @@ def create_texture(op, idx, name, tree):
 
         # Need to pack the image into the .blend file or it will go
         # away as soon as the temp file is deleted.
-        tex_image.image.pack() #TODO decide on tradeoff for using as_png
+        tex_image.image.pack()  # TODO: decide on tradeoff for using as_png
 
     if 'uri' in source:
         uri = source['uri']
@@ -65,7 +65,7 @@ def create_texture(op, idx, name, tree):
 def create_pbr_group():
     """Create a node group for metallic-roughness PBR."""
 
-    #XXX IDEA
+    # XXX IDEA
     # Use rna2xml to serialize the PBR group in KhronosGroup/glTF-Blender-Exporter
     # and just import it here and get rid of this whole mess!
 
@@ -79,7 +79,7 @@ def create_pbr_group():
 
     # Crap, I did this function in camelCase. Of course it's the one with
     # a million variables. Stupid, stupid.
-    #TODO make it snake_case
+    # TODO: make it snake_case
 
     baseColorFacInp = inputs.new('NodeSocketColor', 'baseColorFactor')
     baseColorTexInp = inputs.new('NodeSocketColor', 'baseColorTexture')
@@ -87,7 +87,7 @@ def create_pbr_group():
     roughFacInp = inputs.new('NodeSocketFloat', 'roughnessFactor')
     metRoughTexInp = inputs.new('NodeSocketColor', 'metallicRoughnessTexture')
     vertColorInp = inputs.new('NodeSocketColor', 'Vertex Color')
-    normalInp = inputs.new('NodeSocketNormal', 'Normal')
+    inputs.new('NodeSocketNormal', 'Normal')
 
     baseColorFacInp.default_value = (1, 1, 1, 1)
     baseColorTexInp.default_value = (1, 1, 1, 1)
@@ -96,7 +96,7 @@ def create_pbr_group():
     metRoughTexInp.default_value = (1, 1, 1, 1)
     vertColorInp.default_value = (1, 1, 1, 1)
 
-    out = outputs.new('NodeSocketShader', 'Output Shader')
+    outputs.new('NodeSocketShader', 'Output Shader')
 
     inputNode = tree.nodes.new('NodeGroupInput')
     inputNode.location = -962, 183
@@ -220,7 +220,7 @@ def create_material_from_properties(op, material, material_name):
     group_node.inputs[2].default_value = metalness
     group_node.inputs[3].default_value = roughness
 
-    #TODO texCoord property
+    # TODO texCoord property
     if 'baseColorTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['baseColorTexture']['index']
         tex = create_texture(op, image_idx, 'baseColorTexture', tree)
@@ -240,7 +240,7 @@ def create_material_from_properties(op, material, material_name):
         normal_map_node.location = -150, -170
         links.new(tex.outputs[0], normal_map_node.inputs[1])
         links.new(normal_map_node.outputs[0], group_node.inputs[6])
-        #TODO scale
+        # TODO scale
     if 'emissiveTexture' in material:
         image_idx = material['emissiveTexture']['index']
         tex = create_texture(op, image_idx, 'emissiveTexture', tree)
@@ -254,7 +254,7 @@ def create_material_from_properties(op, material, material_name):
         links.new(emission_node.outputs[0], add_node.inputs[1])
         links.new(add_node.outputs[0], mo.inputs[0])
         mo.location = 547, -84
-    #TODO occlusion texture
+    # TODO occlusion texture
 
     return mat
 

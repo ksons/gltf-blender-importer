@@ -23,7 +23,7 @@ report_path = os.path.join(base_dir, 'report.json')
 
 
 def run_tests():
-    report = { 'tests': [] }
+    report = {'tests': []}
     tests = report['tests']
 
     files = (
