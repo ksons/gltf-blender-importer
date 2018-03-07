@@ -12,6 +12,7 @@ bl_info = {
     'name': 'glTF 2.0 Importer',
     'author': 'Kristian Sons',
     'blender': (2, 71, 0),
+    'version': (0, 0, 0),
     'location': 'File > Import',
     'description': '',
     'warning': '',
