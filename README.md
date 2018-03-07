@@ -10,7 +10,7 @@ Until now, only designed to load the glTF 2.0 [sample models](https://github.com
 Blender ≥2.78 is recommended.
 
 Find the latest archive here:
-
+<img src="./doc/archive.png"/>
 
 You can install the archive using the ``Install from File...`` button in ``File->User preferences...->Add-ons``.
 After installing you have to find the add-on and activate it.
