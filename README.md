@@ -4,13 +4,12 @@
 
 Blender importer for glTF 2.0.
 
-Until now, only designed to load the glTF 2.0 [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0). Expect updates soon; feel free to contribute!
-
 ## Installation
 Blender ≥2.78 is recommended.
 
 Find the latest archive here:
-<img src="./doc/archive.png"/>
+
+<a href="https://github.com/ksons/gltf-blender-importer/releases/download/0.5.0/io_scene_gltf-0.5.0.zip"><img src="./doc/archive.png"/></a>
 
 You can install the archive using the ``Install from File...`` button in ``File->User preferences...->Add-ons``.
 After installing you have to find the add-on and activate it.
