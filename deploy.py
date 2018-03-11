@@ -28,13 +28,17 @@ version = args.version.split('.')
 version_string = ".".join(version)
 
 main_file = os.path.join(pathname, 'addons', 'io_scene_gltf', '__init__.py')
+readme_file = os.path.join(pathname, 'README.md')
 
 replace_in_file(main_file,
                 '\'version\': \([0-9\, ]*\)',
                 '\'version\': (%s)' % ', '.join(version))
 
+replace_in_file(readme_file,
+                'download/[0-9\.]*/io_scene_gltf-[0-9\.]*zip',
+                'download/{}/io_scene_gltf-{}.zip'.format(version_string, version_string) )
 
-subprocess.call(["git", "add", main_file])
+subprocess.call(["git", "add", main_file, readme_file])
 subprocess.call(["git", "commit", "-m", "Bumb version number to {}".format(version_string)])
 subprocess.call(["git", "tag", "v{}".format(version_string)])
 
