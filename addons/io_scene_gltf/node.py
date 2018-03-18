@@ -183,32 +183,40 @@ def generate_armature_object(op):
 
 def create_node(op, idx):
     node = op.gltf['nodes'][idx]
-    name = node.get('name', 'nodes[%d]' % idx)
     mat = get_transform(node)
 
-    # print("Creating node: {} ({})".format(idx, name) )
+    # print("Creating node: {}".format(idx) )
 
     def create(name, data):
         ob = bpy.data.objects.new(name, data)
         bpy.context.scene.objects.link(ob)
         return ob
 
+    nodes = []
     if 'mesh' in node:
-        mesh_name = name
-        if 'camera' in node:
-            mesh_name += '.mesh'
-        parent = create(mesh_name, op.get_mesh(node['mesh']))
-    else:
-        parent = create(name, None)
+        mesh_name = node.get('name', 'mesh[%d]' % idx)
+        mesh = create(mesh_name, op.get_mesh(node['mesh']))
+        nodes.append(mesh)
 
-    parent.matrix_local = mat
+    if 'camera' in node:
+        camera_name = node.get('name', 'camera[%d]' % idx)
+        camera = create(camera_name, op.get_camera(node['camera']))
+        nodes.append(camera)
 
+    if not nodes:
+        name =  node.get('name', 'node[%d]' % idx)
+        nodes.append(create(name, None))
+
+    for n in nodes:
+        n.matrix_local = mat
+
+    parent = nodes[0]
     children = node.get('children', [])
     for child_idx in children:
         for child_node in create_node(op, child_idx):
             child_node.parent = parent
 
-    return [parent]
+    return nodes
 
 
 def create_scene(op, idx):

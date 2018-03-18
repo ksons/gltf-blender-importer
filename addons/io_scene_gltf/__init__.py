@@ -6,7 +6,7 @@ import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import animation, buffer, material, mesh, node
+from io_scene_gltf import animation, buffer, material, mesh, node, camera
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
@@ -69,10 +69,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def get_camera(self, idx):
         if idx not in self.cameras:
-            # TODO: actually handle cameras
-            camera = self.gltf['cameras'][idx]
-            name = camera.get('name', 'cameras[%d]' % idx)
-            self.cameras[idx] = bpy.data.cameras.new(name)
+            self.cameras[idx] = camera.create_camera(self, idx)
         return self.cameras[idx]
 
     def generate_actions(self):
