@@ -1,5 +1,6 @@
 import bpy
 from mathutils import Matrix, Quaternion, Vector
+from bpy_extras.io_utils import axis_conversion
 
 """
 Handle nodes and scenes.
@@ -180,6 +181,35 @@ def generate_armature_object(op):
     # here for now.
     bpy.context.scene.objects.unlink(arma_ob)
 
+def create_node(op, idx):
+    node = op.gltf['nodes'][idx]
+    name = node.get('name', 'nodes[%d]' % idx)
+    mat = get_transform(node)
+
+    # print("Creating node: {} ({})".format(idx, name) )
+
+    def create(name, data):
+        ob = bpy.data.objects.new(name, data)
+        bpy.context.scene.objects.link(ob)
+        return ob
+
+    if 'mesh' in node:
+        mesh_name = name
+        if 'camera' in node:
+            mesh_name += '.mesh'
+        parent = create(mesh_name, op.get_mesh(node['mesh']))
+    else:
+        parent = create(name, None)
+
+    parent.matrix_local = mat
+
+    children = node.get('children', [])
+    for child_idx in children:
+        for child_node in create_node(op, child_idx):
+            child_node.parent = parent
+
+    return [parent]
+
 
 def create_scene(op, idx):
     scene = op.gltf['scenes'][idx]
@@ -192,20 +222,22 @@ def create_scene(op, idx):
     # scn.world.use_nodes = True
 
     # Always link in the whole node forest
-    scn.objects.link(op.armature_ob)
+    # scn.objects.link(op.armature_ob)
+
+    global_matrix = axis_conversion(from_forward="Z", from_up="Y").to_4x4()
 
     roots = scene.get('nodes', [])
     for root_idx in roots:
         # Link in any objects in this tree
-        for ob in op.root_to_objects[root_idx]:
-            scn.objects.link(ob)
+        for ob in create_node(op, root_idx):
+            ob.matrix_local = global_matrix * ob.matrix_local
 
     return scn
 
 
 def generate_scenes(op):
     find_root_idxs(op)
-    generate_armature_object(op)
+    # generate_armature_object(op)
 
     scenes = op.gltf.get('scenes', [])
     for scene_idx in range(0, len(scenes)):
