@@ -3,6 +3,10 @@ from functools import reduce
 import bmesh
 import bpy
 
+def convert_coordinates(verts):
+    """Convert glTF coordinate system to Blender."""
+    return [[v[0], -v[2], v[1]] for v in verts]
+
 
 def primitive_to_mesh(op, primitive, all_attributes, material_index):
     """Convert a glTF primitive object to a Blender mesh.
@@ -21,7 +25,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
         # Early out if there's no POSITION data
         return me
 
-    verts = op.get_accessor(attributes['POSITION'])
+    verts = convert_coordinates(op.get_accessor(attributes['POSITION']))
     edges = []
     faces = []
 
@@ -85,7 +89,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
 
     # Assign normals
     if 'NORMAL' in attributes:
-        normals = op.get_accessor(attributes['NORMAL'])
+        normals = convert_coordinates(op.get_accessor(attributes['NORMAL']))
         for i, vertex in enumerate(me.vertices):
             vertex.normal = normals[i]
 
@@ -120,22 +124,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     if 'TEXCOORD_1' in attributes:
         assign_texcoords(op.get_accessor(attributes['TEXCOORD_1']), me.uv_layers[1].data)
 
-    # Assign joints by generating vertex groups
-    if 'JOINTS_0' in attributes and 'WEIGHTS_0' in attributes:
-        # Don't seem to need to deal with all_attributes here.
-        # The only way I could find to set vertex groups was by
-        # round-tripping through a bmesh.
-        # TODO: find a better way?
-        joints = op.get_accessor(attributes['JOINTS_0'])
-        weights = op.get_accessor(attributes['WEIGHTS_0'])
-        bme = bmesh.new()
-        bme.from_mesh(me)
-        layer = bme.verts.layers.deform.new('JOINTS_0')
-        for vert, joint_vec, weight_vec in zip(bme.verts, joints, weights):
-            for joint, weight in zip(joint_vec, weight_vec):
-                vert[layer][joint] = weight
-        bme.to_mesh(me)
-        bme.free()
+    # TODO: handle joints and weights
 
     me.update()
 

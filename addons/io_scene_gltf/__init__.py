@@ -74,6 +74,16 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.cameras[idx] = bpy.data.cameras.new(name)
         return self.cameras[idx]
 
+    def get_node(self, idx):
+        if idx not in self.nodes:
+            self.nodes[idx] = node.create_node(self, idx)
+        return self.nodes[idx]
+
+    def get_scene(self, idx):
+        if idx not in self.scenes:
+            self.scenes[idx] = node.create_scene(self, idx)
+        return self.scenes[idx]
+
     def generate_actions(self):
         if 'animations' in self.gltf:
             for idx in range(0, len(self.gltf['animations'])):
@@ -181,23 +191,21 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.materials = {}
         self.meshes = {}
         self.scenes = {}
-        # Indices of the root nodes
-        self.root_idxs = []
-        # Maps the index of a root node to the objects in that tree
-        self.root_to_objects = {}
-        # Maps a node index to the corresponding bone's name
-        self.node_to_bone_name = {}
+        self.nodes = {}
 
         self.load()
 
         self.check_version()
         self.check_required_extensions()
 
-        node.generate_scenes(self)
+        for idx in range(0, len(self.gltf.get('scenes', []))):
+            self.get_scene(idx)
+
         self.generate_actions()
 
         if 'scene' in self.gltf:
-            bpy.context.screen.scene = self.scenes[self.gltf['scene']]
+            mainScreen = bpy.context.screen
+            mainScreen.scene = self.get_scene(self.gltf['scene'])
 
         return {'FINISHED'}
 
