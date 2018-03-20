@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("version")
 
 args = parser.parse_args()
-pathname = os.path.dirname(sys.argv[0])   
+pathname = os.path.dirname(sys.argv[0])
 
 
 def replace_in_file(file, expr, new_substr):
@@ -36,7 +36,7 @@ replace_in_file(main_file,
 
 replace_in_file(readme_file,
                 'download/[0-9\.]*/io_scene_gltf-[0-9\.]*zip',
-                'download/{}/io_scene_gltf-{}.zip'.format(version_string, version_string) )
+                'download/{}/io_scene_gltf-{}.zip'.format(version_string, version_string))
 
 subprocess.call(["git", "add", main_file, readme_file])
 subprocess.call(["git", "commit", "-m", "Bumb version number to {}".format(version_string)])

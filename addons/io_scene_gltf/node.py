@@ -42,26 +42,19 @@ def convert_quaternion(q):
     return Quaternion([q[3], q[0], q[1], q[2]])
 
 
-def get_transform(node):
+def set_transform(node, obj):
     if 'matrix' in node:
-        return convert_matrix(node['matrix'])
+        obj.matrix_local = convert_matrix(node['matrix'])
     else:
-        mat = Matrix()
         if 'scale' in node:
             s = node['scale']
-            mat = Matrix([
-                [s[0], 0, 0, 0],
-                [0, s[1], 0, 0],
-                [0, 0, s[2], 0],
-                [0, 0, 0, 1]
-            ])
+            obj.scale = (s[0], s[1], s[2])
         if 'rotation' in node:
-            q = convert_quaternion(node['rotation'])
-            mat = q.to_matrix().to_4x4() * mat
+            obj.rotation_quaternion = convert_quaternion(node['rotation'])
+            # mat = q.to_matrix().to_4x4() * mat
         if 'translation' in node:
-            t = Vector(node['translation'])
-            mat = Matrix.Translation(t) * mat
-        return mat
+            obj.location = Vector(node['translation'])
+            # mat = Matrix.Translation(t) * mat
 
 
 def create_objects(op, idx, root_idx):
@@ -148,7 +141,7 @@ def generate_armature_object(op):
         node = op.gltf['nodes'][idx]
         name = node.get('name', 'node[%d]' % idx)
         # Urg, isn't this backwards from get_transform? Figure out why.
-        mat = parent_mat * get_transform(node)
+        mat = parent_mat  # * get_transform(node)
 
         bone = arma.edit_bones.new(name)
         bone.use_connect = False
@@ -181,9 +174,9 @@ def generate_armature_object(op):
     # here for now.
     bpy.context.scene.objects.unlink(arma_ob)
 
+
 def create_node(op, idx):
     node = op.gltf['nodes'][idx]
-    mat = get_transform(node)
 
     # print("Creating node: {}".format(idx) )
 
@@ -192,60 +185,70 @@ def create_node(op, idx):
         bpy.context.scene.objects.link(ob)
         return ob
 
-    nodes = []
+    objects = []
     if 'mesh' in node:
         mesh_name = node.get('name', 'mesh[%d]' % idx)
         mesh = create(mesh_name, op.get_mesh(node['mesh']))
-        nodes.append(mesh)
+        objects.append(mesh)
 
     if 'camera' in node:
         camera_name = node.get('name', 'camera[%d]' % idx)
         camera = create(camera_name, op.get_camera(node['camera']))
-        nodes.append(camera)
+        objects.append(camera)
 
-    if not nodes:
-        name =  node.get('name', 'node[%d]' % idx)
-        nodes.append(create(name, None))
+    if not objects:
+        name = node.get('name', 'node[%d]' % idx)
+        objects.append(create(name, None))
 
-    for n in nodes:
-        n.matrix_local = mat
+    for obj in objects:
+        set_transform(node, obj)
 
-    parent = nodes[0]
+    parent = objects[0]
     children = node.get('children', [])
     for child_idx in children:
         for child_node in create_node(op, child_idx):
             child_node.parent = parent
 
-    return nodes
+    return objects
 
 
-def create_scene(op, idx):
+def create_scene(op, idx, blender_scene=None):
     scene = op.gltf['scenes'][idx]
     name = scene.get('name', 'scene[%d]' % idx)
 
-    bpy.ops.scene.new(type='NEW')
-    scn = bpy.context.scene
-    scn.name = name
-    scn.render.engine = 'CYCLES'
-    # scn.world.use_nodes = True
+    if not blender_scene:
+        bpy.ops.scene.new(type='NEW')
+        blender_scene = bpy.context.scene
+
+    blender_scene.name = name
+    blender_scene.render.engine = 'CYCLES'
+    # blender_scene.world.use_nodes = True
 
     # Always link in the whole node forest
-    # scn.objects.link(op.armature_ob)
-
-    global_matrix = axis_conversion(from_forward="Z", from_up="Y").to_4x4()
-
+    # blender_scene.objects.link(op.armature_ob)
     roots = scene.get('nodes', [])
+
+    # Add a root object to fix the difference in orientation
+    root_object = bpy.data.objects.new("SceneRoot", None)
+    root_object.matrix_local = axis_conversion(from_forward="Z", from_up="Y").to_4x4()
+    blender_scene.objects.link(root_object)
+
     for root_idx in roots:
         # Link in any objects in this tree
         for ob in create_node(op, root_idx):
-            ob.matrix_local = global_matrix * ob.matrix_local
+            ob.parent = root_object
 
-    return scn
+    return blender_scene
+
+
+def append_to_scene(op):
+    scene_idx = op.gltf.get('scene', 0)
+    op.scenes[scene_idx] = create_scene(op, scene_idx, bpy.context.scene)
 
 
 def generate_scenes(op):
     find_root_idxs(op)
-    # generate_armature_object(op)
+    generate_armature_object(op)
 
     scenes = op.gltf.get('scenes', [])
     for scene_idx in range(0, len(scenes)):
