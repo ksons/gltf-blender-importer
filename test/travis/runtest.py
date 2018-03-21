@@ -46,6 +46,10 @@ if __name__ == '__main__':
         glob.glob(samples_path + '/**/*.gltf', recursive=True) +
         glob.glob(samples_path + '/**/*.glb', recursive=True)
     )
+
+    # Skip Draco encoded files for now
+    files = [fn for fn in files if "Draco" not in fn]
+
     print("%i sample files" % len(files))
     for filename in files:
         test = test_generator(filename)
