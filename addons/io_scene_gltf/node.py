@@ -55,11 +55,6 @@ def set_transform(node, ob):
         rot = [rot[3], rot[0], rot[1], rot[2]]  # xyzw -> wxyz
         loc = node.get('translation', [0.0, 0.0, 0.0])
 
-    # Switch glTF coordinates to Blender coordinates
-    sca = [sca[0], sca[2], sca[1]]
-    rot = [rot[0], rot[1], -rot[3], rot[2]]
-    loc = [loc[0], -loc[2], loc[1]]
-
     ob.location = loc
     ob.rotation_mode = 'QUATERNION'
     ob.rotation_quaternion = rot
