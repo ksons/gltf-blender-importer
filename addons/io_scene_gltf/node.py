@@ -42,19 +42,28 @@ def convert_quaternion(q):
     return Quaternion([q[3], q[0], q[1], q[2]])
 
 
-def set_transform(node, obj):
+def set_transform(node, ob):
     if 'matrix' in node:
-        obj.matrix_local = convert_matrix(node['matrix'])
+        m = node['matrix']
+        # column-major to row-major
+        m = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
+        m.transpose()
+        (loc, rot, sca) = m.decompose()
     else:
-        if 'scale' in node:
-            s = node['scale']
-            obj.scale = (s[0], s[1], s[2])
-        if 'rotation' in node:
-            obj.rotation_quaternion = convert_quaternion(node['rotation'])
-            # mat = q.to_matrix().to_4x4() * mat
-        if 'translation' in node:
-            obj.location = Vector(node['translation'])
-            # mat = Matrix.Translation(t) * mat
+        sca = node.get('scale', [1.0, 1.0, 1.0])
+        rot = node.get('rotation', [0.0, 0.0, 0.0, 1.0])
+        rot = [rot[3], rot[0], rot[1], rot[2]]  # xyzw -> wxyz
+        loc = node.get('translation', [0.0, 0.0, 0.0])
+
+    # Switch glTF coordinates to Blender coordinates
+    sca = [sca[0], sca[2], sca[1]]
+    rot = [rot[0], rot[1], -rot[3], rot[2]]
+    loc = [loc[0], -loc[2], loc[1]]
+
+    ob.location = loc
+    ob.rotation_mode = 'QUATERNION'
+    ob.rotation_quaternion = rot
+    ob.scale = sca
 
 
 def create_objects(op, idx, root_idx):
