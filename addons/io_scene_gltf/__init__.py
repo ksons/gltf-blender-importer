@@ -6,16 +6,18 @@ import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import animation, buffer, material, mesh, node
+from io_scene_gltf import animation, buffer, material, mesh, node, camera
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
-    'author': 'Kristian Sons',
+    'author': 'Kristian Sons (ksons), scurest',
     'blender': (2, 71, 0),
-    'location': 'File > Import',
-    'description': '',
+    'version': (0, 0, 0),
+    'location': 'File > Import > glTF JSON (.gltf/.glb)',
+    'description': 'Importer for the glTF 2.0 file format.',
     'warning': '',
-    'wiki_url': '',
+    'wiki_url': 'https://github.com/ksons/gltf-blender-importer/blob/master/README.md',
+    'tracker_url': 'https://github.com/ksons/gltf-blender-importer/issues',
     'category': 'Import-Export'
 }
 
@@ -68,10 +70,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def get_camera(self, idx):
         if idx not in self.cameras:
-            # TODO: actually handle cameras
-            camera = self.gltf['cameras'][idx]
-            name = camera.get('name', 'cameras[%d]' % idx)
-            self.cameras[idx] = bpy.data.cameras.new(name)
+            self.cameras[idx] = camera.create_camera(self, idx)
         return self.cameras[idx]
 
     def generate_actions(self):
@@ -193,10 +192,10 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_version()
         self.check_required_extensions()
 
-        node.generate_scenes(self)
+        node.create_hierarchy(self)
         self.generate_actions()
 
-        if 'scene' in self.gltf:
+        if 'scene' in self.gltf and bpy.context.screen:
             bpy.context.screen.scene = self.scenes[self.gltf['scene']]
 
         return {'FINISHED'}
