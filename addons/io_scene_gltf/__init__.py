@@ -12,7 +12,7 @@ bl_info = {
     'name': 'glTF 2.0 Importer',
     'author': 'Kristian Sons (ksons), scurest',
     'blender': (2, 71, 0),
-    'version': (0, 0, 0),
+    'version': (0, 3, 0),
     'location': 'File > Import > glTF JSON (.gltf/.glb)',
     'description': 'Importer for the glTF 2.0 file format.',
     'warning': '',
