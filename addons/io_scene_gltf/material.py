@@ -5,6 +5,10 @@ import tempfile
 import bpy
 from bpy_extras.image_utils import load_image
 
+# This is a hack as it is not possible to access a "normal" slot via name or
+# store it in a temporary variable
+NORMAL = 6
+
 
 def do_with_temp_file(contents, func):
     """Call func with the path to a temp file containing contents.
@@ -88,7 +92,6 @@ def create_pbr_group():
     metRoughTexInp = inputs.new('NodeSocketColor', 'metallicRoughnessTexture')
     vertColorInp = inputs.new('NodeSocketColor', 'Vertex Color')
     inputs.new('NodeSocketNormal', 'Normal')
-    NORMAL = 6
 
     baseColorFacInp.default_value = (1, 1, 1, 1)
     baseColorTexInp.default_value = (1, 1, 1, 1)
@@ -216,28 +219,34 @@ def create_material_from_properties(op, material, material_name):
     group_node.node_tree = group
 
     mo = tree.nodes.new('ShaderNodeOutputMaterial')
-    mo.location = 365, -25
-    links.new(group_node.outputs[0], mo.inputs[0])
+    mo.location = 420, -25
+    final_output = group_node.outputs[0]
 
     metalness = pbr_metallic_roughness.get('metallicFactor', 1)
     roughness = pbr_metallic_roughness.get('roughnessFactor', 1)
     base_color = pbr_metallic_roughness.get('baseColorFactor', [1, 1, 1, 1])
 
-    group_node.inputs[0].default_value = base_color
-    group_node.inputs[2].default_value = metalness
-    group_node.inputs[3].default_value = roughness
+    group_node.inputs['baseColorFactor'].default_value = base_color
+    group_node.inputs['metallicFactor'].default_value = metalness
+    group_node.inputs['roughnessFactor'].default_value = roughness
 
+    base_color_texture = None
     # TODO texCoord property
     if 'baseColorTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['baseColorTexture']['index']
-        tex = create_texture(op, image_idx, 'baseColorTexture', tree)
-        tex.location = -580, 200
-        links.new(tex.outputs[0], group_node.inputs[1])
+        base_color_texture = create_texture(
+            op, image_idx, 'baseColorTexture', tree)
+        base_color_texture.location = -580, 200
+        links.new(
+            base_color_texture.outputs['Color'], group_node.inputs['baseColorTexture'])
+
     if 'metallicRoughnessTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['metallicRoughnessTexture']['index']
         tex = create_texture(op, image_idx, 'metallicRoughnessTexture', tree)
         tex.location = -580, -150
-        links.new(tex.outputs[0], group_node.inputs[4])
+        links.new(tex.outputs[0],
+                  group_node.inputs['metallicRoughnessTexture'])
+
     if 'normalTexture' in material:
         image_idx = material['normalTexture']['index']
         tex = create_texture(op, image_idx, 'normalTexture', tree)
@@ -245,9 +254,10 @@ def create_material_from_properties(op, material, material_name):
         tex.color_space = 'NONE'
         normal_map_node = tree.nodes.new('ShaderNodeNormalMap')
         normal_map_node.location = -150, -170
-        links.new(tex.outputs[0], normal_map_node.inputs[1])
-        links.new(normal_map_node.outputs[0], group_node.inputs[6])
+        links.new(tex.outputs['Color'], normal_map_node.inputs['Color'])
+        links.new(normal_map_node.outputs[0], group_node.inputs[NORMAL])
         # TODO scale
+
     if 'emissiveTexture' in material:
         image_idx = material['emissiveTexture']['index']
         tex = create_texture(op, image_idx, 'emissiveTexture', tree)
@@ -257,11 +267,28 @@ def create_material_from_properties(op, material, material_name):
         add_node = tree.nodes.new('ShaderNodeAddShader')
         add_node.location = 357, -89
         links.new(tex.outputs[0], emission_node.inputs[0])
-        links.new(group_node.outputs[0], add_node.inputs[0])
+        links.new(final_output, add_node.inputs[0])
         links.new(emission_node.outputs[0], add_node.inputs[1])
-        links.new(add_node.outputs[0], mo.inputs[0])
+        final_output = add_node.outputs[0]
         mo.location = 547, -84
     # TODO occlusion texture
+
+    alpha_mode = material.get("alphaMode", "OPAQUE")
+    if alpha_mode == "BLEND" and base_color_texture:
+
+        transparent_node = tree.nodes.new('ShaderNodeBsdfTransparent')
+        transparent_node.location = 43, -240
+
+        mix_node = tree.nodes.new('ShaderNodeMixShader')
+        mix_node.location = 250, -151
+
+        links.new(base_color_texture.outputs['Alpha'], mix_node.inputs['Fac'])
+        links.new(transparent_node.outputs[0], mix_node.inputs[1])
+        links.new(final_output, mix_node.inputs[2])
+
+        final_output = mix_node.outputs[0]
+
+    links.new(final_output, mo.inputs[0])
 
     return mat
 
