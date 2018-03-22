@@ -9,7 +9,7 @@ Blender ≥2.78 is recommended.
 
 Find the latest archive here:
 
-<a href="https://github.com/ksons/gltf-blender-importer/releases/download/0.3.0/io_scene_gltf-0.3.0.zip"><img src="./doc/archive.png"/></a>
+<a href="https://github.com/ksons/gltf-blender-importer/releases/download/v0.3.0/io_scene_gltf-0.3.0.zip"><img src="./doc/archive.png"/></a>
 
 You can install the archive using the ``Install from File...`` button in ``File->User preferences...->Add-ons``.
 After installing you have to find the add-on and activate it.
