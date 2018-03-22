@@ -191,11 +191,10 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_version()
         self.check_required_extensions()
 
-        # node.generate_scenes(self)
-        node.append_to_scene(self)
+        node.create_hierarchy(self)
         self.generate_actions()
 
-        if 'scene' in self.gltf:
+        if 'scene' in self.gltf and bpy.context.screen:
             bpy.context.screen.scene = self.scenes[self.gltf['scene']]
 
         return {'FINISHED'}
