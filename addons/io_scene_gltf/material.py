@@ -88,6 +88,7 @@ def create_pbr_group():
     metRoughTexInp = inputs.new('NodeSocketColor', 'metallicRoughnessTexture')
     vertColorInp = inputs.new('NodeSocketColor', 'Vertex Color')
     inputs.new('NodeSocketNormal', 'Normal')
+    NORMAL = 6
 
     baseColorFacInp.default_value = (1, 1, 1, 1)
     baseColorTexInp.default_value = (1, 1, 1, 1)
@@ -107,35 +108,41 @@ def create_pbr_group():
     multColorNode1 = tree.nodes.new('ShaderNodeMixRGB')
     multColorNode1.location = -680, 466
     multColorNode1.blend_type = 'MULTIPLY'
-    multColorNode1.inputs[0].default_value = 1
-    links.new(inputNode.outputs[0], multColorNode1.inputs[1])
-    links.new(inputNode.outputs[1], multColorNode1.inputs[2])
+    multColorNode1.inputs['Fac'].default_value = 1
+    links.new(inputNode.outputs['baseColorFactor'],
+              multColorNode1.inputs['Color1'])
+    links.new(inputNode.outputs['baseColorTexture'],
+              multColorNode1.inputs['Color2'])
+
     multColorNode2 = tree.nodes.new('ShaderNodeMixRGB')
     multColorNode2.location = -496, 466
     multColorNode2.blend_type = 'MULTIPLY'
-    multColorNode2.inputs[0].default_value = 1
-    links.new(inputNode.outputs[5], multColorNode2.inputs[1])
-    links.new(multColorNode1.outputs[0], multColorNode2.inputs[2])
-    colorOutputLink = multColorNode2.outputs[0]
+    multColorNode2.inputs['Fac'].default_value = 1
+    links.new(inputNode.outputs['Vertex Color'],
+              multColorNode2.inputs['Color1'])
+    links.new(multColorNode1.outputs['Color'], multColorNode2.inputs['Color2'])
+    colorOutputLink = multColorNode2.outputs['Color']
 
     # Calculate roughness and metalness
     separator = tree.nodes.new('ShaderNodeSeparateRGB')
     separator.location = -749, -130
-    links.new(inputNode.outputs[4], separator.inputs[0])
+    links.new(
+        inputNode.outputs['metallicRoughnessTexture'], separator.inputs['Image'])
 
     multRoughnessNode = tree.nodes.new('ShaderNodeMath')
     multRoughnessNode.location = -476, -50
     multRoughnessNode.operation = 'MULTIPLY'
-    links.new(separator.outputs[1], multRoughnessNode.inputs[0])
-    links.new(inputNode.outputs[3], multRoughnessNode.inputs[1])
-    roughnessOutputLink = multRoughnessNode.outputs[0]
+    links.new(separator.outputs['G'], multRoughnessNode.inputs[0])
+    links.new(inputNode.outputs['metallicFactor'], multRoughnessNode.inputs[1])
+    roughnessOutputLink = multRoughnessNode.outputs['Value']
 
     multMetalnessNode = tree.nodes.new('ShaderNodeMath')
     multMetalnessNode.location = -476, -227
     multMetalnessNode.operation = 'MULTIPLY'
-    links.new(separator.outputs[2], multMetalnessNode.inputs[0])
-    links.new(inputNode.outputs[2], multMetalnessNode.inputs[1])
-    metalnessOutputLink = multMetalnessNode.outputs[0]
+    links.new(separator.outputs['B'], multMetalnessNode.inputs[0])
+    links.new(inputNode.outputs['roughnessFactor'],
+              multMetalnessNode.inputs[1])
+    metalnessOutputLink = multMetalnessNode.outputs['Value']
 
     # First mix
     mixNode1 = tree.nodes.new('ShaderNodeMixShader')
@@ -143,18 +150,18 @@ def create_pbr_group():
 
     fresnelNode = tree.nodes.new('ShaderNodeFresnel')
     fresnelNode.location = 14, 553
-    links.new(inputNode.outputs[6], fresnelNode.inputs[1])
+    links.new(inputNode.outputs[NORMAL], fresnelNode.inputs[1])
 
     diffuseNode = tree.nodes.new('ShaderNodeBsdfDiffuse')
     diffuseNode.location = 14, 427
-    links.new(colorOutputLink, diffuseNode.inputs[0])
-    links.new(roughnessOutputLink, diffuseNode.inputs[1])
-    links.new(inputNode.outputs[6], diffuseNode.inputs[2])
+    links.new(colorOutputLink, diffuseNode.inputs['Color'])
+    links.new(roughnessOutputLink, diffuseNode.inputs['Roughness'])
+    links.new(inputNode.outputs[NORMAL], diffuseNode.inputs['Normal'])
 
     glossyNode = tree.nodes.new('ShaderNodeBsdfGlossy')
     glossyNode.location = 14, 289
-    links.new(roughnessOutputLink, glossyNode.inputs[1])
-    links.new(inputNode.outputs[6], glossyNode.inputs[2])
+    links.new(roughnessOutputLink, glossyNode.inputs['Roughness'])
+    links.new(inputNode.outputs[NORMAL], glossyNode.inputs['Normal'])
 
     links.new(fresnelNode.outputs[0], mixNode1.inputs[0])
     links.new(diffuseNode.outputs[0], mixNode1.inputs[1])
@@ -166,9 +173,9 @@ def create_pbr_group():
 
     glossyNode2 = tree.nodes.new('ShaderNodeBsdfGlossy')
     glossyNode2.location = 66, -114
-    links.new(colorOutputLink, glossyNode2.inputs[0])
-    links.new(roughnessOutputLink, glossyNode2.inputs[1])
-    links.new(inputNode.outputs[6], glossyNode2.inputs[2])
+    links.new(colorOutputLink, glossyNode2.inputs['Color'])
+    links.new(roughnessOutputLink, glossyNode2.inputs['Roughness'])
+    links.new(inputNode.outputs[NORMAL], glossyNode2.inputs['Normal'])
 
     links.new(metalnessOutputLink, mixNode2.inputs[0])
     links.new(mixNode1.outputs[0], mixNode2.inputs[1])
