@@ -5,6 +5,10 @@ import tempfile
 import bpy
 from bpy_extras.image_utils import load_image
 
+# This is a hack as it is not possible to access a "normal" slot via name or
+# store it in a temporary variable
+NORMAL = 6
+
 
 def do_with_temp_file(contents, func):
     """Call func with the path to a temp file containing contents.
@@ -107,35 +111,41 @@ def create_pbr_group():
     multColorNode1 = tree.nodes.new('ShaderNodeMixRGB')
     multColorNode1.location = -680, 466
     multColorNode1.blend_type = 'MULTIPLY'
-    multColorNode1.inputs[0].default_value = 1
-    links.new(inputNode.outputs[0], multColorNode1.inputs[1])
-    links.new(inputNode.outputs[1], multColorNode1.inputs[2])
+    multColorNode1.inputs['Fac'].default_value = 1
+    links.new(inputNode.outputs['baseColorFactor'],
+              multColorNode1.inputs['Color1'])
+    links.new(inputNode.outputs['baseColorTexture'],
+              multColorNode1.inputs['Color2'])
+
     multColorNode2 = tree.nodes.new('ShaderNodeMixRGB')
     multColorNode2.location = -496, 466
     multColorNode2.blend_type = 'MULTIPLY'
-    multColorNode2.inputs[0].default_value = 1
-    links.new(inputNode.outputs[5], multColorNode2.inputs[1])
-    links.new(multColorNode1.outputs[0], multColorNode2.inputs[2])
-    colorOutputLink = multColorNode2.outputs[0]
+    multColorNode2.inputs['Fac'].default_value = 1
+    links.new(inputNode.outputs['Vertex Color'],
+              multColorNode2.inputs['Color1'])
+    links.new(multColorNode1.outputs['Color'], multColorNode2.inputs['Color2'])
+    colorOutputLink = multColorNode2.outputs['Color']
 
     # Calculate roughness and metalness
     separator = tree.nodes.new('ShaderNodeSeparateRGB')
     separator.location = -749, -130
-    links.new(inputNode.outputs[4], separator.inputs[0])
+    links.new(
+        inputNode.outputs['metallicRoughnessTexture'], separator.inputs['Image'])
 
     multRoughnessNode = tree.nodes.new('ShaderNodeMath')
     multRoughnessNode.location = -476, -50
     multRoughnessNode.operation = 'MULTIPLY'
-    links.new(separator.outputs[1], multRoughnessNode.inputs[0])
-    links.new(inputNode.outputs[3], multRoughnessNode.inputs[1])
-    roughnessOutputLink = multRoughnessNode.outputs[0]
+    links.new(separator.outputs['G'], multRoughnessNode.inputs[0])
+    links.new(inputNode.outputs['metallicFactor'], multRoughnessNode.inputs[1])
+    roughnessOutputLink = multRoughnessNode.outputs['Value']
 
     multMetalnessNode = tree.nodes.new('ShaderNodeMath')
     multMetalnessNode.location = -476, -227
     multMetalnessNode.operation = 'MULTIPLY'
-    links.new(separator.outputs[2], multMetalnessNode.inputs[0])
-    links.new(inputNode.outputs[2], multMetalnessNode.inputs[1])
-    metalnessOutputLink = multMetalnessNode.outputs[0]
+    links.new(separator.outputs['B'], multMetalnessNode.inputs[0])
+    links.new(inputNode.outputs['roughnessFactor'],
+              multMetalnessNode.inputs[1])
+    metalnessOutputLink = multMetalnessNode.outputs['Value']
 
     # First mix
     mixNode1 = tree.nodes.new('ShaderNodeMixShader')
@@ -143,18 +153,18 @@ def create_pbr_group():
 
     fresnelNode = tree.nodes.new('ShaderNodeFresnel')
     fresnelNode.location = 14, 553
-    links.new(inputNode.outputs[6], fresnelNode.inputs[1])
+    links.new(inputNode.outputs[NORMAL], fresnelNode.inputs[1])
 
     diffuseNode = tree.nodes.new('ShaderNodeBsdfDiffuse')
     diffuseNode.location = 14, 427
-    links.new(colorOutputLink, diffuseNode.inputs[0])
-    links.new(roughnessOutputLink, diffuseNode.inputs[1])
-    links.new(inputNode.outputs[6], diffuseNode.inputs[2])
+    links.new(colorOutputLink, diffuseNode.inputs['Color'])
+    links.new(roughnessOutputLink, diffuseNode.inputs['Roughness'])
+    links.new(inputNode.outputs[NORMAL], diffuseNode.inputs['Normal'])
 
     glossyNode = tree.nodes.new('ShaderNodeBsdfGlossy')
     glossyNode.location = 14, 289
-    links.new(roughnessOutputLink, glossyNode.inputs[1])
-    links.new(inputNode.outputs[6], glossyNode.inputs[2])
+    links.new(roughnessOutputLink, glossyNode.inputs['Roughness'])
+    links.new(inputNode.outputs[NORMAL], glossyNode.inputs['Normal'])
 
     links.new(fresnelNode.outputs[0], mixNode1.inputs[0])
     links.new(diffuseNode.outputs[0], mixNode1.inputs[1])
@@ -166,9 +176,9 @@ def create_pbr_group():
 
     glossyNode2 = tree.nodes.new('ShaderNodeBsdfGlossy')
     glossyNode2.location = 66, -114
-    links.new(colorOutputLink, glossyNode2.inputs[0])
-    links.new(roughnessOutputLink, glossyNode2.inputs[1])
-    links.new(inputNode.outputs[6], glossyNode2.inputs[2])
+    links.new(colorOutputLink, glossyNode2.inputs['Color'])
+    links.new(roughnessOutputLink, glossyNode2.inputs['Roughness'])
+    links.new(inputNode.outputs[NORMAL], glossyNode2.inputs['Normal'])
 
     links.new(metalnessOutputLink, mixNode2.inputs[0])
     links.new(mixNode1.outputs[0], mixNode2.inputs[1])
@@ -209,28 +219,34 @@ def create_material_from_properties(op, material, material_name):
     group_node.node_tree = group
 
     mo = tree.nodes.new('ShaderNodeOutputMaterial')
-    mo.location = 365, -25
-    links.new(group_node.outputs[0], mo.inputs[0])
+    mo.location = 420, -25
+    final_output = group_node.outputs[0]
 
     metalness = pbr_metallic_roughness.get('metallicFactor', 1)
     roughness = pbr_metallic_roughness.get('roughnessFactor', 1)
     base_color = pbr_metallic_roughness.get('baseColorFactor', [1, 1, 1, 1])
 
-    group_node.inputs[0].default_value = base_color
-    group_node.inputs[2].default_value = metalness
-    group_node.inputs[3].default_value = roughness
+    group_node.inputs['baseColorFactor'].default_value = base_color
+    group_node.inputs['metallicFactor'].default_value = metalness
+    group_node.inputs['roughnessFactor'].default_value = roughness
 
+    base_color_texture = None
     # TODO texCoord property
     if 'baseColorTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['baseColorTexture']['index']
-        tex = create_texture(op, image_idx, 'baseColorTexture', tree)
-        tex.location = -580, 200
-        links.new(tex.outputs[0], group_node.inputs[1])
+        base_color_texture = create_texture(
+            op, image_idx, 'baseColorTexture', tree)
+        base_color_texture.location = -580, 200
+        links.new(
+            base_color_texture.outputs['Color'], group_node.inputs['baseColorTexture'])
+
     if 'metallicRoughnessTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['metallicRoughnessTexture']['index']
         tex = create_texture(op, image_idx, 'metallicRoughnessTexture', tree)
         tex.location = -580, -150
-        links.new(tex.outputs[0], group_node.inputs[4])
+        links.new(tex.outputs[0],
+                  group_node.inputs['metallicRoughnessTexture'])
+
     if 'normalTexture' in material:
         image_idx = material['normalTexture']['index']
         tex = create_texture(op, image_idx, 'normalTexture', tree)
@@ -238,9 +254,10 @@ def create_material_from_properties(op, material, material_name):
         tex.color_space = 'NONE'
         normal_map_node = tree.nodes.new('ShaderNodeNormalMap')
         normal_map_node.location = -150, -170
-        links.new(tex.outputs[0], normal_map_node.inputs[1])
-        links.new(normal_map_node.outputs[0], group_node.inputs[6])
+        links.new(tex.outputs['Color'], normal_map_node.inputs['Color'])
+        links.new(normal_map_node.outputs[0], group_node.inputs[NORMAL])
         # TODO scale
+
     if 'emissiveTexture' in material:
         image_idx = material['emissiveTexture']['index']
         tex = create_texture(op, image_idx, 'emissiveTexture', tree)
@@ -250,11 +267,28 @@ def create_material_from_properties(op, material, material_name):
         add_node = tree.nodes.new('ShaderNodeAddShader')
         add_node.location = 357, -89
         links.new(tex.outputs[0], emission_node.inputs[0])
-        links.new(group_node.outputs[0], add_node.inputs[0])
+        links.new(final_output, add_node.inputs[0])
         links.new(emission_node.outputs[0], add_node.inputs[1])
-        links.new(add_node.outputs[0], mo.inputs[0])
+        final_output = add_node.outputs[0]
         mo.location = 547, -84
     # TODO occlusion texture
+
+    alpha_mode = material.get("alphaMode", "OPAQUE")
+    if alpha_mode == "BLEND" and base_color_texture:
+
+        transparent_node = tree.nodes.new('ShaderNodeBsdfTransparent')
+        transparent_node.location = 43, -240
+
+        mix_node = tree.nodes.new('ShaderNodeMixShader')
+        mix_node.location = 250, -151
+
+        links.new(base_color_texture.outputs['Alpha'], mix_node.inputs['Fac'])
+        links.new(transparent_node.outputs[0], mix_node.inputs[1])
+        links.new(final_output, mix_node.inputs[2])
+
+        final_output = mix_node.outputs[0]
+
+    links.new(final_output, mo.inputs[0])
 
     return mat
 
