@@ -14,11 +14,17 @@ def create_camera(op, idx):
         camera.clip_start = p["znear"]
         camera.clip_end = p["zfar"]
         camera.ortho_scale = max(p["xmag"], p["ymag"])
-    else:
+    elif data["type"] == "perspective":
         camera.type = "PERSP"
         p = data["perspective"]
         camera.clip_start = p["znear"]
         camera.clip_end = p["zfar"]
         camera.lens_unit = "FOV"
         camera.angle_x = p["yfov"] * p["aspectRatio"]
+    else:
+        # this branch should never been taken since the only camera types are
+        # "orthographic" and "perspective"; but if the input document use an
+        # unexpected type we prefer to return an unitialized camera instead of
+        # stop the import with an error
+        pass
     return camera
