@@ -1,4 +1,5 @@
 import bpy
+import math
 
 
 def create_camera(op, idx):
@@ -18,7 +19,8 @@ def create_camera(op, idx):
         camera.type = "PERSP"
         p = data["perspective"]
         camera.clip_start = p["znear"]
-        camera.clip_end = p["zfar"]
+        # according to the spec a missing zfar means "infinite"
+        camera.clip_end = p.get("zfar", math.inf)
         camera.lens_unit = "FOV"
         camera.angle_x = p["yfov"] * p["aspectRatio"]
     else:
