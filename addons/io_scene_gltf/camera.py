@@ -2,7 +2,7 @@ import bpy
 import math
 
 
-def create_camera(op, idx):
+def create_camera(op, idx, scene):
     """
     create a new blender camera from the gltf data
     """
@@ -22,17 +22,13 @@ def create_camera(op, idx):
         # according to the spec a missing zfar means "infinite"
         camera.clip_end = p.get("zfar", math.inf)
         camera.lens_unit = "FOV"
+        camera.angle_y = p["yfov"]
 
-        # The aspectRatio is optional and if missing the importer must provide
-        # a "sensible" default.
-        # Since angle_x and angle_y depend on each other, if the apsect raio is
-        # missing, I let blender figure out the other valus using it's internal
-        # settings.
+        # The aspectRatio is optional and if given, it is used to change the
+        # width resolution
         aspectRatio = p.get("aspectRatio")
         if aspectRatio:
-            camera.angle_x = p["yfov"] * aspectRatio
-        else:
-            camera.angle_y = p["yfov"]
+            scene.render.resolution_x = scene.render.resolution_y * aspectRatio
     else:
         # this branch should never been taken since the only camera types are
         # "orthographic" and "perspective"; but if the input document use an
