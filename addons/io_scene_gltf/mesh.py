@@ -153,8 +153,9 @@ def create_mesh(op, idx):
         me.materials.append(material)
 
     # TODO: Do we need this?
-    for polygon in me.polygons:
-        polygon.use_smooth = True
+    # no we don't ... ruins low res models
+    #for polygon in me.polygons:
+    #    polygon.use_smooth = True
 
     me.update()
 
