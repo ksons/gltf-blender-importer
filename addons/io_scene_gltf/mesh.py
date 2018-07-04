@@ -1,33 +1,27 @@
-from functools import reduce
-
 import bmesh
 import bpy
 
-def convert_coordinates(verts):
+def convert_coordinates(v):
     """Convert glTF coordinate system to Blender."""
-    return [[v[0], -v[2], v[1]] for v in verts]
+    return [v[0], -v[2], v[1]]
 
 
-def primitive_to_mesh(op, primitive, all_attributes, material_index):
-    """Convert a glTF primitive object to a Blender mesh.
+def primitive_to_mesh(op, primitive, name, layers, material_index):
+    """Create a Blender mesh for a glTF primitive."""
 
-    If you have one mesh that has some layer (texcoords, say) and
-    another that doesn't, when you merge them with bmesh it seems to
-    drop the layer. To prevent this, the all_attributes set contains
-    the union of all the attributes from the primitives for the (glTF)
-    mesh that this primitive is contained in so we can always create
-    enough layers.
-    """
-    me = bpy.data.meshes.new('{{{TEMP}}}')
     attributes = primitive['attributes']
 
+    me = bpy.data.meshes.new(name)
+
+    # Early out if there's no POSITION data
     if 'POSITION' not in attributes:
-        # Early out if there's no POSITION data
         return me
 
-    verts = convert_coordinates(op.get('accessor', attributes['POSITION']))
+    verts = op.get('accessor', attributes['POSITION'])
+    verts = [convert_coordinates(v) for v in verts]
     edges = []
     faces = []
+
 
     # Generate the topology
 
@@ -44,12 +38,23 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
         pass
     elif mode == 1:
         # LINES
+        #   1   3
+        #  /   /
+        # 0   2
         edges = [tuple(indices[i:i+2]) for i in range(0, len(indices), 2)]
-    elif mode == 2 or mode == 3:
-        # LINE LOOP/STRIP
+    elif mode == 2:
+        # LINE LOOP
+        #   1---2
+        #  /     \
+        # 0-------3
         edges = [tuple(indices[i:i+2]) for i in range(0, len(indices) - 1)]
-        if mode == 2:
-            edges.append((indices[-1], indices[0]))
+        edges.append((indices[-1], indices[0]))
+    elif mode == 3:
+        # LINE STRIP
+        #   1---2
+        #  /     \
+        # 0       3
+        edges = [tuple(indices[i:i+2]) for i in range(0, len(indices) - 1)]
     elif mode == 4:
         # TRIANGLES
         #   2     3
@@ -78,53 +83,53 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
             for i in range(1, len(indices) - 1)
         ]
     else:
-        raise Exception("primitive mode unimplemented: %d" % mode)
+        raise Exception('primitive mode unimplemented: %d' % mode)
 
     me.from_pydata(verts, edges, faces)
     me.validate()
 
-    # Assign material
+
+    # Assign material to each poly
     for polygon in me.polygons:
         polygon.material_index = material_index
 
-    # Assign normals
-    if 'NORMAL' in attributes:
-        normals = convert_coordinates(op.get('accessor', attributes['NORMAL']))
-        for i, vertex in enumerate(me.vertices):
-            vertex.normal = normals[i]
 
-    # Assign colors
-    if 'COLOR_0' in all_attributes:
-        me.vertex_colors.new('COLOR_0')
-    if 'COLOR_0' in attributes:
-        colors = op.get('accessor', attributes['COLOR_0'])
-        if colors and len(colors[0]) == 4:
-            print(
-                'WARNING! This glTF uses RGBA vertex colors. Blender only supports '
-                'RGB vertex colors. The alpha component will be discarded.'
-            )
+    # Create the caller's requested layers; any layers needed by the attributes
+    # for this mesh will also be created, if they weren't created here, below.
+    for layer, names in layers.items():
+        for name in names:
+            if layer == 'vertex_colors': me.vertex_colors.new(name)
+            if layer == 'uv_layers': me.uv_textures.new(name)
 
-        color_layer = me.vertex_colors[0].data
-        for polygon in me.polygons:
-            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                color_layer[loop_idx].color = colors[vert_idx][0:3]
+    for kind, accessor_id in attributes.items():
+        if kind == 'NORMAL':
+            normals = op.get('accessor', accessor_id)
+            for i, vertex in enumerate(me.vertices):
+                vertex.normal = convert_coordinates(normals[i])
 
-    # Assign texcoords
-    def assign_texcoords(uvs, uv_layer):
-        for polygon in me.polygons:
-            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                uv = uvs[vert_idx]
-                uv_layer[loop_idx].uv = (uv[0], -uv[1])
-    if 'TEXCOORD_0' in all_attributes or 'TEXCOORD_1' in all_attributes:
-        me.uv_textures.new('TEXCOORD_0')
-    if 'TEXCOORD_1' in all_attributes:
-        me.uv_textures.new('TEXCOORD_1')
-    if 'TEXCOORD_0' in attributes:
-        assign_texcoords(op.get('accessor', attributes['TEXCOORD_0']), me.uv_layers[0].data)
-    if 'TEXCOORD_1' in attributes:
-        assign_texcoords(op.get('accessor', attributes['TEXCOORD_1']), me.uv_layers[1].data)
+        if kind.startswith('COLOR_'):
+            if kind not in me.vertex_colors.keys():
+                me.vertex_colors.new(kind)
+            rgba_layer = me.vertex_colors[kind].data
+            colors = op.get('accessor', accessor_id)
+            for polygon in me.polygons:
+                for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
+                    color = colors[vert_idx]
+                    if len(color) == 3: color.append(1.0) # Add alpha component
+                    rgba_layer[loop_idx].color = colors[vert_idx]
 
-    # TODO: handle joints and weights
+        if kind.startswith('TEXCOORD_'):
+            if kind not in me.uv_layers.keys():
+                me.uv_textures.new(kind)
+
+            uvs = op.get('accessor', accessor_id)
+            uv_layer = me.uv_layers[kind].data
+            for polygon in me.polygons:
+                for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
+                    uv = uvs[vert_idx]
+                    uv_layer[loop_idx].uv = (uv[0], -uv[1])
+
+        # TODO: handle joints and weights
 
     me.update()
 
@@ -135,25 +140,51 @@ def create_mesh(op, idx):
     mesh = op.gltf['meshes'][idx]
     name = mesh.get('name', 'meshes[%d]' % idx)
     primitives = mesh['primitives']
-    me = bpy.data.meshes.new(name)
 
-    # Find the union of the attributes used by each primitive.
-    attributes = (set(primitive['attributes'].keys()) for primitive in primitives)
-    all_attributes = reduce(lambda x, y: x.union(y), attributes)
+    # We'll create temporary meshes for each primitive and merge them using
+    # bmesh.
+
+    # When we merge a mesh with eg. a vertex color layer with one without into
+    # the same bmesh, Blender will drop the vertex color layer. Therefore we
+    # make a pass over the primitives here collecting a list of all the layers
+    # we'll need so we can request they be created for each temporary mesh.
+    layers = {
+        'vertex_colors': set(),
+        'uv_layers': set(),
+    }
+    for primitive in primitives:
+        for kind, accessor_id in primitive['attributes'].items():
+            if kind.startswith('COLOR_'):
+                layers['vertex_colors'].add(kind)
+            if kind.startswith('TEXCOORD_'):
+                layers['uv_layers'].add(kind)
+
+    # Make a list of all the materials this mesh will need; the material on a
+    # poly is set by giving an index into this list.
+    materials = list(set(
+        op.get('material', primitive.get('material', 'default_material'))
+        for primitive in primitives
+    ))
 
     bme = bmesh.new()
     for i, primitive in enumerate(mesh['primitives']):
-        tmp_mesh = primitive_to_mesh(op, primitive, all_attributes, material_index=i)
+        blender_material = op.get('material', primitive.get('material', 'default_material'))
+        tmp_mesh = primitive_to_mesh(
+            op,
+            primitive,
+            name=name + '.primitives[i]',
+            layers=layers,
+            material_index=materials.index(blender_material)
+        )
         bme.from_mesh(tmp_mesh)
         bpy.data.meshes.remove(tmp_mesh)
+    me = bpy.data.meshes.new(name)
     bme.to_mesh(me)
     bme.free()
 
-    for primitive in mesh['primitives']:
-        if 'material' in primitive:
-            material = op.get('material', primitive['material'])
-        else:
-            material = op.get('material', 'default')
+    # Fill in the material list (we can't do me.materials = materials since this
+    # property is read-only).
+    for material in materials:
         me.materials.append(material)
 
     # TODO: Do we need this?
