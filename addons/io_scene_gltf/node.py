@@ -98,6 +98,8 @@ def create_vforest(op):
             'mesh_id': mesh_id,
             'parent': vnode,
         }
+        if 'skin' in node:
+            mesh['skin'] = node['skin']
         vnodes.append(mesh)
         vnode['children'].append(mesh)
 
@@ -162,6 +164,29 @@ def realize_vforest(op):
 
     for root in op.vnode_roots:
         realize_vnode(root)
+
+    # Now create the vertex groups for meshes; we do this in a second pass
+    # because we need to have created all the bones so that we know what names
+    # Blender will assign them before we can do this.
+    def create_vertex_groups(vnode):
+        if vnode['type'] == 'MESH' and 'skin' in vnode:
+            ob = vnode['blender_object']
+            skin = op.gltf['skins'][vnode['skin']]
+            joints = skin['joints']
+
+            for node_id in joints:
+                bone_name = op.id_to_vnode[node_id]['blender_editbone'].name
+                ob.vertex_groups.new(bone_name)
+
+            mod = ob.modifiers.new('Skin', 'ARMATURE')
+            mod.object = op.id_to_vnode[skin['skeleton']]['armature_vnode']['blender_object']
+            mod.use_vertex_groups = True
+
+        for child in vnode['children']:
+            create_vertex_groups(child)
+
+    for root in op.vnode_roots:
+        create_vertex_groups(root)
 
 
 def trs_to_matrix(trs):

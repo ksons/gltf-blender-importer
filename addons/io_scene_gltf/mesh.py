@@ -129,7 +129,23 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
                     uv = uvs[vert_idx]
                     uv_layer[loop_idx].uv = (uv[0], -uv[1])
 
-        # TODO: handle joints and weights
+            # Assign joints by generating vertex groups
+        if kind.startswith('JOINTS_'):
+            # Don't seem to need to deal with all_attributes here.
+            # The only way I could find to set vertex groups was by
+            # round-tripping through a bmesh.
+            # TODO: find a better way?
+            joints = op.get('accessor', accessor_id)
+            weights = op.get('accessor', attributes['WEIGHTS_' + kind[len('JOINTS_'):]])
+            bme = bmesh.new()
+            bme.from_mesh(me)
+            layer = bme.verts.layers.deform.new(kind)
+            for vert, joint_vec, weight_vec in zip(bme.verts, joints, weights):
+                for joint, weight in zip(joint_vec, weight_vec):
+                    vert[layer][joint] = weight
+            bme.to_mesh(me)
+            bme.free()
+
 
     me.update()
 
