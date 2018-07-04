@@ -35,25 +35,25 @@ def create_node(op, idx):
         ob = bpy.data.objects.new(name, None)
         mesh_ob = bpy.data.objects.new(
             name + '.mesh',
-            op.get_mesh(node['mesh'])
+            op.get('mesh', node['mesh'])
         )
         camera_ob = bpy.data.objects.new(
             name + '.camera',
-            op.get_camera(node['camera'])
+            op.get('camera', node['camera'])
         )
         mesh_ob.parent = ob
         camera_ob.parent = ob
     elif 'mesh' in node:
-        ob = bpy.data.objects.new(name, op.get_mesh(node['mesh']))
+        ob = bpy.data.objects.new(name, op.get('mesh', node['mesh']))
     elif 'camera' in node:
-        ob = bpy.data.objects.new(name, op.get_camera(node['camera']))
+        ob = bpy.data.objects.new(name, op.get('camera', node['camera']))
     else:
         ob = bpy.data.objects.new(name, None)
 
     set_transform(node, ob)
 
     for child_idx in node.get('children', []):
-        op.get_node(child_idx).parent = ob
+        op.get('node', child_idx).parent = ob
 
     return ob
 
@@ -70,6 +70,10 @@ def create_scene(op, idx):
             scn.objects.link(root)
             for child in root.children:
                 link_hierarchy(child)
-        link_hierarchy(op.get_node(root_idx))
+        link_hierarchy(op.get('node', root_idx))
 
     return scn
+
+def create_scenes(op):
+    for i in range(0, len(op.gltf.get('scenes', []))):
+        create_scene(op, i)

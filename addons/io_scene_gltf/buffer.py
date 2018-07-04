@@ -30,7 +30,7 @@ def create_buffer(op, idx):
 
 def create_buffer_view(op, idx):
     buffer_view = op.gltf['bufferViews'][idx]
-    buffer = op.get_buffer(buffer_view['buffer'])
+    buffer = op.get('buffer', buffer_view['buffer'])
     byte_offset = buffer_view.get('byteOffset', 0)
     byte_length = buffer_view['byteLength']
     stride = buffer_view.get('byteStride', None)
@@ -101,7 +101,7 @@ def create_accessor_from_properties(op, accessor):
         normalize = normalize_lut[accessor['componentType']]
 
     if 'bufferView' in accessor:
-        (buf, stride) = op.get_buffer_view(accessor['bufferView'])
+        (buf, stride) = op.get('buffer_view', accessor['bufferView'])
         stride = stride or default_stride
     else:
         stride = default_stride

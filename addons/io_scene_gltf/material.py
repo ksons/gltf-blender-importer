@@ -56,7 +56,7 @@ def create_texture(op, idx, name, tree):
 
         tex_image.label = name
     else:
-        buf, _stride = op.get_buffer_view(source['bufferView'])
+        buf, _stride = op.get('buffer_view', source['bufferView'])
         do_with_temp_file(buf, load_from_temp)
 
     return tex_image
@@ -179,13 +179,13 @@ def create_pbr_group():
     return tree
 
 
-def get_pbr_group(op):
-    if not op.pbr_group:
-        op.pbr_group = create_pbr_group()
-    return op.pbr_group
-
-
 def create_material(op, idx):
+    if idx == 'pbr_group':
+        return create_pbr_group()
+
+    if idx == 'default_material':
+        return create_material_from_properties(op, {}, 'gltf Default Material')
+
     material = op.gltf['materials'][idx]
     material_name = material.get('name', 'materials[%d]' % idx)
     return create_material_from_properties(op, material, material_name)
@@ -195,7 +195,6 @@ def create_material_from_properties(op, material, material_name):
     pbr_metallic_roughness = material.get('pbrMetallicRoughness', {})
 
     mat = bpy.data.materials.new(material_name)
-    op.materials[material_name] = mat
     mat.use_nodes = True
     tree = mat.node_tree
     links = tree.links
@@ -203,7 +202,7 @@ def create_material_from_properties(op, material, material_name):
     for n in tree.nodes:
         tree.nodes.remove(n)
 
-    group = get_pbr_group(op)
+    group = op.get('material', 'pbr_group')
     group_node = tree.nodes.new('ShaderNodeGroup')
     group_node.location = 43, 68
     group_node.node_tree = group
@@ -257,7 +256,3 @@ def create_material_from_properties(op, material, material_name):
     # TODO occlusion texture
 
     return mat
-
-
-def create_default_material(op):
-    return create_material_from_properties(op, {}, 'glTF Default Material')

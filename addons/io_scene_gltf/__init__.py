@@ -6,7 +6,7 @@ import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import animation, buffer, material, mesh, node
+from io_scene_gltf import animation, buffer, camera, material, mesh, node
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
@@ -22,6 +22,7 @@ bl_info = {
 
 # Supported glTF version
 GLTF_VERSION = (2, 0)
+
 # Supported extensions
 EXTENSIONS = set()
 
@@ -36,79 +37,105 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     )
 
-    def get_buffer(self, idx):
-        if idx not in self.buffers:
-            self.buffers[idx] = buffer.create_buffer(self, idx)
-        return self.buffers[idx]
+    def execute(self, context):
+        self.caches = {}
 
-    def get_buffer_view(self, idx):
-        if idx not in self.buffer_views:
-            self.buffer_views[idx] = buffer.create_buffer_view(self, idx)
-        return self.buffer_views[idx]
+        self.load()
+        self.check_version()
+        self.check_required_extensions()
 
-    def get_accessor(self, idx):
-        if idx not in self.accessors:
-            self.accessors[idx] = buffer.create_accessor(self, idx)
-        return self.accessors[idx]
+        node.create_scenes(self)
 
-    def get_material(self, idx):
-        if idx not in self.materials:
-            self.materials[idx] = material.create_material(self, idx)
-        return self.materials[idx]
+        return {'FINISHED'}
 
-    def get_default_material(self):
-        if not self.default_material:
-            self.default_material = material.create_default_material(self)
-        return self.default_material
+    def get(self, type, id):
+        cache = self.caches.setdefault(type, {})
+        if id not in cache:
+            cache[id] = CREATE_FNS[type](self, id)
+        return cache[id]
 
-    def get_mesh(self, idx):
-        if idx not in self.meshes:
-            self.meshes[idx] = mesh.create_mesh(self, idx)
-        return self.meshes[idx]
+    def load(self):
+        filename = self.filepath
 
-    def get_camera(self, idx):
-        if idx not in self.cameras:
-            # TODO: actually handle cameras
-            camera = self.gltf['cameras'][idx]
-            name = camera.get('name', 'cameras[%d]' % idx)
-            self.cameras[idx] = bpy.data.cameras.new(name)
-        return self.cameras[idx]
+        # Remember this for resolving relative paths
+        self.base_path = os.path.dirname(filename)
 
-    def get_node(self, idx):
-        if idx not in self.nodes:
-            self.nodes[idx] = node.create_node(self, idx)
-        return self.nodes[idx]
+        with open(filename, 'rb') as f:
+            contents = f.read()
 
-    def get_scene(self, idx):
-        if idx not in self.scenes:
-            self.scenes[idx] = node.create_scene(self, idx)
-        return self.scenes[idx]
+        # Use magic number to detect GLB files.
+        is_glb = contents[:4] == b'glTF'
+        if is_glb:
+            self.parse_glb(contents)
+        else:
+            self.gltf = json.loads(contents.decode('utf-8'))
+            self.glb_buffer = None
 
-    def generate_actions(self):
-        if 'animations' in self.gltf:
-            for idx in range(0, len(self.gltf['animations'])):
-                animation.create_action(self, idx)
+    def parse_glb(self, contents):
+        header = struct.unpack_from('<4sII', contents)
+        glb_version = header[1]
+        if glb_version != 2:
+            raise Exception('GLB: version not supported: %d' % glb_version)
+
+        def parse_chunk(offset):
+            header = struct.unpack_from('<I4s', contents, offset=offset)
+            data_len = header[0]
+            ty = header[1]
+            data = contents[offset + 8: offset + 8 + data_len]
+            next_offset = offset + 8 + data_len
+            return {
+                'type': ty,
+                'data': data,
+                'next_offset': next_offset,
+            }
+
+        offset = 12  # end of header
+
+        json_chunk = parse_chunk(offset)
+        if json_chunk['type'] != b'JSON':
+            raise Exception('GLB: JSON chunk must be first')
+        self.gltf = json.loads(json_chunk['data'].decode('utf-8'))
+
+        self.glb_buffer = None
+
+        offset = json_chunk['next_offset']
+        while offset < len(contents):
+            chunk = parse_chunk(offset)
+
+            # Ignore unknown chunks
+            if chunk['type'] != b'BIN\0':
+                offset = chunk['next_offset']
+                continue
+
+            if chunk['type'] == b'JSON':
+                raise Exception('GLB: Too many JSON chunks, should be 1')
+
+            if self.glb_buffer != None:
+                raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
+
+            self.glb_buffer = chunk['data']
+
+            offset = chunk['next_offset']
 
     def check_version(self):
-        def str_to_version(s):
+        def parse_version(s):
+            """Parse a string like '1.1' to a tuple (1,1)."""
             try:
                 version = tuple(int(x) for x in s.split('.'))
-                if len(version) >= 2:
-                    return version
+                if len(version) >= 2: return version
             except Exception:
                 pass
-
             raise Exception('unknown version format: %s' % s)
 
         asset = self.gltf['asset']
 
         if 'minVersion' in asset:
-            min_version = str_to_version(asset['minVersion'])
+            min_version = parse_version(asset['minVersion'])
             supported = GLTF_VERSION >= min_version
             if not supported:
                 raise Exception('unsupported minimum version: %s' % min_version)
         else:
-            version = str_to_version(asset['version'])
+            version = parse_version(asset['version'])
             # Check only major version; we should be backwards- and forwards-compatible
             supported = version[0] == GLTF_VERSION[0]
             if not supported:
@@ -124,91 +151,16 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         #    if ext not in EXTENSIONS:
         #        raise Exception('unsupported extension was required: %s' % ext)
 
-    def load(self):
-        filename = self.filepath
-        self.base_path = os.path.dirname(filename)
 
-        with open(filename, 'rb') as f:
-            contents = f.read()
-
-        # Use magic number to detect GLB files.
-        is_glb = contents[:4] == b'glTF'
-
-        if is_glb:
-            self.parse_glb(contents)
-        else:
-            self.gltf = json.loads(contents.decode('utf-8'))
-
-    def parse_glb(self, contents):
-        header = struct.unpack_from('<4sII', contents)
-        glb_version = header[1]
-        if glb_version != 2:
-            raise Exception('GLB: version not supported: %d' % glb_version)
-
-        def parse_chunk(offset):
-            header = struct.unpack_from('<I4s', contents, offset=offset)
-            data_len = header[0]
-            ty = header[1]
-            data = contents[offset + 8: offset + 8 + data_len]
-            next_offset = offset + 8 + data_len
-            return {'type': ty, 'data': data, 'next_offset': next_offset}
-
-        offset = 12  # end of header
-
-        json_chunk = parse_chunk(offset)
-        if json_chunk['type'] != b'JSON':
-            raise Exception('GLB: JSON chunk must be first')
-        self.gltf = json.loads(json_chunk['data'].decode('utf-8'))
-
-        offset = json_chunk['next_offset']
-
-        while offset < len(contents):
-            chunk = parse_chunk(offset)
-
-            # Ignore unknown chunks
-            if chunk['type'] != b'BIN\0':
-                offset = chunk['next_offset']
-                continue
-
-            if chunk['type'] == b'JSON':
-                raise Exception('GLB: Too many JSON chunks, should be 1')
-
-            if self.glb_buffer:
-                raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
-
-            self.glb_buffer = chunk['data']
-
-            offset = chunk['next_offset']
-
-    def execute(self, context):
-        self.glb_buffer = None
-        self.buffers = {}
-        self.buffer_views = {}
-        self.accessors = {}
-        self.cameras = {}
-        self.default_material = None
-        self.pbr_group = None
-        self.materials = {}
-        self.meshes = {}
-        self.scenes = {}
-        self.nodes = {}
-
-        self.load()
-
-        self.check_version()
-        self.check_required_extensions()
-
-        for idx in range(0, len(self.gltf.get('scenes', []))):
-            self.get_scene(idx)
-
-        self.generate_actions()
-
-        if 'scene' in self.gltf:
-            mainScreen = bpy.context.screen
-            mainScreen.scene = self.get_scene(self.gltf['scene'])
-
-        return {'FINISHED'}
-
+CREATE_FNS = {
+    'buffer': buffer.create_buffer,
+    'buffer_view': buffer.create_buffer_view,
+    'accessor': buffer.create_accessor,
+    'material': material.create_material,
+    'mesh': mesh.create_mesh,
+    'camera': camera.create_camera,
+    'node': node.create_node,
+}
 
 # Add to a menu
 def menu_func_import(self, context):

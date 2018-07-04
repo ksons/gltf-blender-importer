@@ -25,7 +25,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
         # Early out if there's no POSITION data
         return me
 
-    verts = convert_coordinates(op.get_accessor(attributes['POSITION']))
+    verts = convert_coordinates(op.get('accessor', attributes['POSITION']))
     edges = []
     faces = []
 
@@ -34,7 +34,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     mode = primitive.get('mode', 4)
 
     if 'indices' in primitive:
-        indices = op.get_accessor(primitive['indices'])
+        indices = op.get('accessor', primitive['indices'])
     else:
         indices = range(0, len(verts))
 
@@ -89,7 +89,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
 
     # Assign normals
     if 'NORMAL' in attributes:
-        normals = convert_coordinates(op.get_accessor(attributes['NORMAL']))
+        normals = convert_coordinates(op.get('accessor', attributes['NORMAL']))
         for i, vertex in enumerate(me.vertices):
             vertex.normal = normals[i]
 
@@ -97,7 +97,7 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     if 'COLOR_0' in all_attributes:
         me.vertex_colors.new('COLOR_0')
     if 'COLOR_0' in attributes:
-        colors = op.get_accessor(attributes['COLOR_0'])
+        colors = op.get('accessor', attributes['COLOR_0'])
         if colors and len(colors[0]) == 4:
             print(
                 'WARNING! This glTF uses RGBA vertex colors. Blender only supports '
@@ -120,9 +120,9 @@ def primitive_to_mesh(op, primitive, all_attributes, material_index):
     if 'TEXCOORD_1' in all_attributes:
         me.uv_textures.new('TEXCOORD_1')
     if 'TEXCOORD_0' in attributes:
-        assign_texcoords(op.get_accessor(attributes['TEXCOORD_0']), me.uv_layers[0].data)
+        assign_texcoords(op.get('accessor', attributes['TEXCOORD_0']), me.uv_layers[0].data)
     if 'TEXCOORD_1' in attributes:
-        assign_texcoords(op.get_accessor(attributes['TEXCOORD_1']), me.uv_layers[1].data)
+        assign_texcoords(op.get('accessor', attributes['TEXCOORD_1']), me.uv_layers[1].data)
 
     # TODO: handle joints and weights
 
@@ -151,9 +151,9 @@ def create_mesh(op, idx):
 
     for primitive in mesh['primitives']:
         if 'material' in primitive:
-            material = op.get_material(primitive['material'])
+            material = op.get('material', primitive['material'])
         else:
-            material = op.get_default_material()
+            material = op.get('material', 'default')
         me.materials.append(material)
 
     # TODO: Do we need this?
