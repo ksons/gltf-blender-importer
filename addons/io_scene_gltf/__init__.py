@@ -73,6 +73,9 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             self.glb_buffer = None
 
     def parse_glb(self, contents):
+        contents = memoryview(contents)
+
+        # Parse the header
         header = struct.unpack_from('<4sII', contents)
         glb_version = header[1]
         if glb_version != 2:
@@ -92,10 +95,14 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         offset = 12  # end of header
 
+        # The first chunk must be JSON
         json_chunk = parse_chunk(offset)
         if json_chunk['type'] != b'JSON':
             raise Exception('GLB: JSON chunk must be first')
-        self.gltf = json.loads(json_chunk['data'].decode('utf-8'))
+        self.gltf = json.loads(
+            json_chunk['data'].tobytes(),
+            encoding='utf-8'
+        )
 
         self.glb_buffer = None
 

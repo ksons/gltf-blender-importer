@@ -1,9 +1,13 @@
-import base64
-import os
-import struct
+# This file handles creating buffers, buffer views, and accessors. It's pure
+# python and doesn't depend on Blender at all.
+#
+# Buffers and buffer views are represented with memoryviews so we can do
+# efficient slicing.
 
+import base64, os, struct
 
 def create_buffer(op, idx):
+    """Create a memoryview for buffers[idx]."""
     buffer = op.gltf['buffers'][idx]
 
     # Handle GLB buffer
@@ -17,18 +21,21 @@ def create_buffer(op, idx):
         idx = uri.find(';base64,')
         if idx != -1:
             base64_data = uri[idx+8:]
-            return base64.b64decode(base64_data)
+            return memoryview(base64.b64decode(base64_data))
 
     # If we got here, assume it's a filepath
     buffer_location = os.path.join(op.base_path, uri)  # TODO: absolute paths?
     print('Loading file', buffer_location)
     with open(buffer_location, 'rb') as fp:
-        bytes_read = fp.read()
-
-    return bytes_read
+        return memoryview(fp.read())
 
 
 def create_buffer_view(op, idx):
+    """Create a pair for bufferViews[idx].
+
+    The pair contains a memoryview for the view and also its stride, which is
+    specified in the bufferView as well.
+    """
     buffer_view = op.gltf['bufferViews'][idx]
     buffer = op.get('buffer', buffer_view['buffer'])
     byte_offset = buffer_view.get('byteOffset', 0)
@@ -40,6 +47,11 @@ def create_buffer_view(op, idx):
 
 
 def create_accessor(op, idx):
+    """Create an array holding the elements of accessors[idx].
+
+    If the accessor is of SCALAR type, each element is a number. Otherwise, each
+    element is a tuple holding the components for that element.
+    """
     accessor = op.gltf['accessors'][idx]
     return create_accessor_from_properties(op, accessor)
 
@@ -118,6 +130,9 @@ def create_accessor_from_properties(op, accessor):
         result.append(elem)
         off += stride
 
+    # A sparse property says "change the elements at these indices to these
+    # values" where "these" are given in an accessor-like way, so we find the
+    # list of indices and values by recursing into this function.
     if 'sparse' in accessor:
         sparse = accessor['sparse']
         indices_props = {
