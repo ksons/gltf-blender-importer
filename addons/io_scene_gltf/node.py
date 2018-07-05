@@ -141,6 +141,7 @@ def realize_vforest(op):
             #ob = bpy.data.objects.new(vnode['name'], armature)
             bpy.ops.object.add(type='ARMATURE', enter_editmode=True)
             ob = bpy.context.object
+            ob.location = [0, 0, 0]
             vnode['blender_armature'] = ob.data
             vnode['blender_object'] = ob
             if vnode['parent']:
@@ -151,8 +152,10 @@ def realize_vforest(op):
             bone = armature.edit_bones.new(vnode['name'])
             bone.use_connect = False
             bone.head = vnode['bone_matrix'] * Vector((0, 0, 0))
-            bone.tail = vnode['bone_matrix'] * Vector((0, 0, 1))
+            bone.tail = vnode['bone_matrix'] * Vector((0, 1, 0))
+            bone.align_roll(vnode['bone_matrix'] * Vector((0, 0, 1)) - bone.head)
             vnode['blender_editbone'] = bone
+            vnode['blender_name'] = bone.name
             if vnode['parent'] and 'blender_editbone' in vnode['parent']:
                 bone.parent = vnode['parent']['blender_editbone']
 
@@ -161,6 +164,9 @@ def realize_vforest(op):
 
         for child in vnode['children']:
             realize_vnode(child)
+
+        if vnode['type'] == 'ARMATURE':
+            bpy.ops.object.mode_set(mode='OBJECT')
 
     for root in op.vnode_roots:
         realize_vnode(root)
@@ -175,7 +181,7 @@ def realize_vforest(op):
             joints = skin['joints']
 
             for node_id in joints:
-                bone_name = op.id_to_vnode[node_id]['blender_editbone'].name
+                bone_name = op.id_to_vnode[node_id]['blender_name']
                 ob.vertex_groups.new(bone_name)
 
             mod = ob.modifiers.new('Skin', 'ARMATURE')

@@ -45,6 +45,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_required_extensions()
 
         node.create_scenes(self)
+        animation.add_animations(self)
 
         return {'FINISHED'}
 
