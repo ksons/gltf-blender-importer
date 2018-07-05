@@ -1,27 +1,71 @@
-import bpy
 import json
+
+import bpy
 from mathutils import Vector, Quaternion, Matrix
+
+
+# Throughout this file, a "curve" is a map from domain points to ordinates,
+# represented as either a pair of lists, (domain_points, ordinates), which is how
+# they naturally come out of a glTF, or as a list of (domain_point, ordinate)
+# pairs, which is easier to consume for Blender.
+#
+# All curves we use are extended to intermediate domain points by linear
+# interpolation.
+
+# An animation targets some quantity in a scene and says that it varies over
+# time by giving a curve mapping the time to the value of that quantity at that
+# time.
+
 
 # Scale sampler input ("time") by this to get the frame of the
 # animation.
-#TODO think more about this?
+# TODO: think more about how to do this?
 FRAME_RATE = 60
 
+# Quotes a string using double-quotes (used for Blender data paths).
 def quote(s): return json.dumps(s)
+
+# These functions convert from glTF conventions to Blender
+def convert_translation(t):
+    return Vector([t[0], -t[2], t[1]])
+def convert_rotation(r):
+    r = [r[3], r[0], r[1], r[2]]
+    return Quaternion([r[0], r[1], -r[3], r[2]])
+def convert_scale(s):
+    return Vector([s[0], s[2], s[1]])
+
+CONVERT_FNS = {
+    'translation': convert_translation,
+    'rotation': convert_rotation,
+    'scale': convert_scale,
+}
+
 
 
 def add_animations(op):
+    """Adds all the animations in the glTF file to Blender."""
     for i in range(0, len(op.gltf.get('animations', []))):
         add_animation(op, i)
 
 
 def add_animation(op, anim_id):
+    """Adds the animation with the given index to Blender."""
     anim = op.gltf['animations'][anim_id]
-    name = anim.get('name', 'animations[%d]' % anim_id)
     channels = anim['channels']
     samplers = anim['samplers']
 
-    # Gather all the samplers that affect a given node
+    # Gather all the curves that affect a given node. node_curves will look like
+    # {
+    #     node_id: {
+    #         'translation': (
+    #             [0.0, 0.1, 0.2, ...], # inputs
+    #             [[1.0, 0.0, 0.0], [1.2, 0.0, 0.0], ...], # outputs
+    #         )
+    #         'rotation': ...,
+    #         ...
+    #     }
+    #     ...
+    # }
     node_curves = {}
 
     for channel in channels:
@@ -32,127 +76,86 @@ def add_animation(op, anim_id):
         node_id = target['node']
         path = target['path']
 
-        node_curves.setdefault(node_id, {})[path] = {
-            'input': op.get('accessor', sampler['input']),
-            'output': op.get('accessor', sampler['output']),
-        }
+        node_curves.setdefault(node_id, {})[path] = (
+            op.get('accessor', sampler['input']),
+            op.get('accessor', sampler['output']),
+        )
 
     for node_id, curves in node_curves.items():
         if op.id_to_vnode[node_id]['type'] == 'BONE':
-            compute_bone_fcurves(op, anim_id, node_id, curves)
+            add_bone_fcurves(op, anim_id, node_id, curves)
         else:
-            add_actions(op, anim_id, node_id, curves)
+            add_action(op, anim_id, node_id, curves)
 
 
-def add_actions(op, animation_id, node_id, curves):
+
+
+def add_action(op, animation_id, node_id, curves):
+    # An action in Blender contains fcurves (Blender's animation curves) which
+    # target a particular TRS component. An action only applies to one object,
+    # so we need to create an action for each (glTF animation, animated object)
+    # pair. This is unfortunate; it would be better to
     animation = op.gltf['animations'][animation_id]
-    name = animation.get('name', 'animation[%d]' % animation_id)
+    name = animation.get('name', 'animations[%d]' % animation_id)
     blender_object = op.id_to_vnode[node_id]['blender_object']
     name += '@' + blender_object.name
 
     action = bpy.data.actions.new(name)
-    blender_object.animation_data_create().action = action
 
-    name = op.id_to_vnode[node_id]['blender_object'].name
+    if blender_object.animation_data is None:
+        blender_object.animation_data_create().action = action
 
-    if 'translation' in curves:
-        curve = curves['translation']
-        for i in range(0, 3):
-            fcurve = action.fcurves.new(data_path='location', index=i)
-            for t, y in zip(curve['input'], curve['output']):
-                y = [y[0], -y[2], y[1]] # convert to Blender coordinates
-                fcurve.keyframe_points.insert(FRAME_RATE * t, y[i])
-            fcurve.update()
+    # The values in the glTF curve are the same (excepting the change of
+    # coordinates) as those needed in Blender's fcurve so we just copy them on
+    # through.
 
-    if 'rotation' in curves:
-        curve = curves['rotation']
-        for i in range(0, 4):
-            fcurve = action.fcurves.new(data_path='rotation_quaternion', index=i)
-            for t, y in zip(curve['input'], curve['output']):
-                y = [y[0], y[1], -y[3], y[2]] # convert to Blender coordinates
-                fcurve.keyframe_points.insert(FRAME_RATE * t, y[i])
-            fcurve.update()
+    triples = [
+        # (glTF path name, Blender path name, number of components)
+        ('translation', 'translation', 3),
+        ('rotation', 'rotation_quaternion', 4),
+        ('scale', 'scale', 3)
+    ]
+    for target, data_path, num_components in triples:
+        if target in curves:
+            curve = curves[target]
+            convert = CONVERT_FNS[target]
 
-    if 'scale' in curves:
-        curve = curves['scale']
-        for i in range(0, 3):
-            fcurve = action.fcurves.new(data_path='scale', index=i)
-            for t, y in zip(curve['input'], curve['output']):
-                y = [y[0], y[2], y[1]] # convert to Blender coordinates
-                fcurve.keyframe_points.insert(FRAME_RATE * t, y[i])
-            fcurve.update()
+            # Create an fcurve for each component (eg. xyz) and then loop over
+            # the curve's points, filling in each fcurve with the corresponding
+            # component.
+            #
+            # NOTE: using keyframe_points.add/keyframe_points[k].co is *much*
+            # faster than using keyframe_points.insert.
 
+            fcurves = [
+                action.fcurves.new(data_path=data_path, index=i)
+                for i in range(0, num_components)
+            ]
 
-# TODO: this comment was for a WIP version and doesn't reflect the code below
-# exactly.
-#
-# Importing animations that target nodes that in Blender are represented by
-# bones is more complicated.
-#
-# In glTF, the animation curves specify the positions of a node at a given time
-# directly. _animation_curve()
-#
-# In Blender, the animation curves specify the positions of the pose bones, and
-# the positions of the nodes are calculat final_position = sampleed by
-# post-composing the positions of the pose bones to the positions of the rest
-# bones
-#
-#     pose_position = sample_animation_curve()
-#     final_position = pose_position * rest_position
-#
-# Therefore we need to compute appropriate TRSes for the pose positions to give
-# to Blender from the desired final positions stored in the glTF file by
-#
-#     pose_position = final_position * rest_position^{-1}
-#
-# This raises another issue. In both glTF and Blender, the animation curves do
-# not map time to the whole TRS value, but to one of the TRS components (in
-# glTF, to one of translation, rotation, or scale; in Blender, to one of the 10
-# individual numbers in the TRS). In order to carry out the above calculation,
-# we need a curve mapping time to the TRS. But we before we can stick the
-# individual curves together they need to resampled onto a common domain, eg:
-# the translation curve might have domain
-#
-#     0.0, 0.1, 0.5, 0.9, 1.1, ...
-#
-# while the rotations curve has domain
-#
-#     0.0, 0.2, 0.4, 0.6, 0.8, 1.0, ...
-#
-# So we need to resample the curves onto their common domain
-#
-#     0.0, 0.1, 0.2, 0.4, 0.5, 0.6, 0.8, 0.9, 1.0, 1.1, ...
-#
-# before we can compute the pose position.
-#
-# This gives a time -> TRS curve and we can easily project in into the ten time
-# -> (real number) curves for each TRS property that correctly animates the
-# Blender armature. However, many of these curves may contain superfluous points
-# -- points whose ordinate is the (approximate) lerp of its neighbors and can be
-# deleted without affecting the curve's value
-#
-#    . a
-#     \
-#      .    <- superfluous point (results from lerping a and b)
-#       \
-#        . b
-#
-# -- or else the curve itself may be entirely superfluous -- when it is an
-# (approximate) constant whose value is the default for the component (eg. when
-# it is constantly 1.0 for a scale component) and the whole curve can be deleted
-# without affecting the animation.
-#
-# Therefore the whole process of importing an animation targeting a joint/bone
-# is
-#
-# 1. gather the glTF curves that target the joint
-# 2. resample them onto a common domain to compute a time -> (final TRS) curve
-# 3. compute pose positions, giving a time -> (pose TRS) curve
-# 4. split into 10 time -> (real number) curves, and
-# 5. clean-up superfluous points and curves
+            for fcurve in fcurves:
+                fcurve.keyframe_points.add(len(curve[0]))
+
+            for k, (t, y) in enumerate(zip(curve[0], curve[1])):
+                frame = t * FRAME_RATE
+                y = convert(y)
+                for i, fcurve in enumerate(fcurves):
+                    fcurve.keyframe_points[k].co = [frame, y[i]]
+
+            for fcurve in fcurves:
+                fcurve.update()
 
 
-def compute_bone_fcurves(op, anim_id, node_id, curves):
+
+def add_bone_fcurves(op, anim_id, node_id, curves):
+    # When a bone is the target of a curve, things are more complicated. The values
+    # in the gLTF curve are not the values we need for the fcurves so we need to do
+    # some computation to find the correct values before we create the fcurves.
+
+
+    # To start with, unlike an object, a bone doens't get its own action; there
+    # is one action for the whole armature. To handle this, we store a cache of
+    # the action for each animation in the armature's vnode and create one when
+    # we first animate a bone in that armature.
     bone_vnode = op.id_to_vnode[node_id]
     armature_vnode = bone_vnode['armature_vnode']
     action_cache = armature_vnode.setdefault('action_cache', {})
@@ -161,67 +164,131 @@ def compute_bone_fcurves(op, anim_id, node_id, curves):
         name += '@' + armature_vnode['blender_armature'].name
         action = bpy.data.actions.new(name)
         action_cache[anim_id] = bpy.data.actions.new(name)
-        armature_vnode['blender_armature'].animation_data_create().action = action
+        if armature_vnode['blender_armature'].animation_data is None:
+            armature_vnode['blender_armature'].animation_data_create().action = action
 
     action = action_cache[anim_id]
+
+    # This is the bone's rest TRS.
+    rest_trans = Vector(bone_vnode['trs'][0])
+    rest_rot = Quaternion(bone_vnode['trs'][1])
+    rest_scale = Vector(bone_vnode['trs'][2])
+    rest_trs = (rest_trans, rest_rot, rest_scale)
+
+    # In glTF, the ordinates of an animation curve say what the final position
+    # of the node should be
+    #
+    #    final_trs = sample_gltf_curve()
+    #
+    # But in Blender, when handling bones, you don't animate the bone directly
+    # like this, you animate a "pose bone", and the final position is computed
+    # as
+    #
+    #    pose_trs = sample_blender_fcurve()
+    #    final_trs = rest_trs * pose_trs
+    #
+    # (TODO: is that order of multiplication correct?)
+    #
+    # So we need to compute a value for pose_trs that gives the specified final
+    # position.
+    #
+    #    pose_trs = rest_trs^{-1} * final_trs
+    #
+    # However, to do this computation we need a whole TRS for each of these
+    # values; the curves in the glTF give only one piece, say the T piece at
+    # once. So we need to put the curves together to get a (time) -> (final_trs)
+    # curve. But the curves may be sampled at different rates, eg. the
+    # translation curve might be sampled at times
+    #
+    #    0.0, 0.2, 0.4, 0.6, 0.8, ...
+    #
+    # while the rotation curve is sampled at times
+    #
+    #    0.1, 0.3, 0.4, 0.5, 0.55, 1.1, ...
+    #
+    # so in order to get a single curve we need to have a common domain, so we
+    # first need to resample the individual curves onto their common domain, eg.
+    # in the above case
+    #
+    #    0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.55, 0.8, 1.1, ...
+    #
+    # Once we've done this we have a (time) -> (final_trs) curve and we can
+    # compute the (time) -> (pose_trs) curve, project it into its ten components
+    # to get ten curves, and these are the fcurves Blender requires.
+
+    pose_trs_curves = build_pose_trs_curves(curves, rest_trs)
+
+    # pose_trs_curves is a list of ten (time) -> (final_trs component) curves,
+    # in the list of pairs representation. (Actually, they're (frame) ->
+    # (final_trs component) curves.) We just need to copy them into fcurves now.
 
     bone_name = bone_vnode['blender_name']
     base_path = 'pose.bones[%s]' % quote(bone_name)
 
-    rest_trans = Vector(bone_vnode['trs'][0])
-    rest_rot = Quaternion(bone_vnode['trs'][1])
-    rest_scale = Vector(bone_vnode['trs'][2])
-    defaults = {
-        'translation': rest_trans,
-        'rotation': rest_rot,
-        'scale': rest_scale,
-    }
+    # Default value of each of the 10 TRS component
+    defaults = [
+        0, 0, 0,
+        1, 0, 0, 0,
+        1, 1, 1,
+    ]
+    # Index of each of the 10 components into its containing T, R, or S component
+    indices = [
+        0, 1, 2,
+        0, 1, 2, 3,
+        0, 1, 2,
+    ]
+    # The Blender path for each of the 10 components
+    paths = [
+        'location', 'location', 'location',
+        'rotation_quaternion', 'rotation_quaternion', 'rotation_quaternion', 'rotation_quaternion',
+        'scale', 'scale', 'scale',
+    ]
+    for i, pose_trs_curve in enumerate(pose_trs_curves):
+        # We'll do one final step before writing an fcurve.
+        #
+        # Note that even if the eg. scale component of the final_trs isn't
+        # animated, the scale component of the pose_trs might be so we did need
+        # to pass everything through a component -> whole TRS -> components
+        # pipe.
+        #
+        # However, although that can happen, many of the resulting (time) ->
+        # (pose_TRS component) curves are superfluous -- they are constantly the
+        # default value for that component (eg. the X-scale curve might be
+        # constantly 1) -- or they contain superfluous points, which would
+        # result from lerping their neighbors.
+        #
+        #    . a
+        #     \
+        #      .    <- superfluous point (results from lerping a and b)
+        #       \
+        #        . b
+        #
+        # We'll attempt to clean-up the new curves we've generated by removing
+        # these curves and points before we insert them into the fcurves.
+        #
+        # Obviously, this step is not necessary.
 
-    si = [1.0 / rest_scale[i] for i in range(0,3)]
-    ri = rest_rot.conjugated()
-    ti = Vector(rest_trans)
-    ti[0] *= si[0]
-    ti[1] *= si[1]
-    ti[2] *= si[2]
-    ti = - (ri.to_matrix() * ti)
-    inv_rest = (ti, ri, si)
+        cleanup_curve(pose_trs_curve)
 
-    trs_curve = resample_onto_common_domain(curves, defaults)
+        # Check if the whole curve is superfluous (constantly its default value)
+        if (
+            len(pose_trs_curve[1]) == 2 and
+            approx_eq(pose_trs_curve[1][0], defaults[i]) and
+            approx_eq(pose_trs_curve[1][0], pose_trs_curve[1][1])
+        ):
+            continue
 
-    times = trs_curve['input']
-    trses = trs_curve['output']
-    for i in range(0, len(trses)):
-        trses[i][1].normalize()
-        trses[i] = mul_trs(inv_rest, trses[i])
+        # Copy the curve into an fcurve
 
-    for i in range(0, 3):
-        data_path = base_path + '.location'
-        fcurve = action.fcurves.new(data_path=data_path, index=i)
-        for t, y in zip(times, trses):
-            fcurve.keyframe_points.insert(FRAME_RATE * t, y[0][i])
+        data_path = base_path + '.' + paths[i]
+        fcurve = action.fcurves.new(data_path=data_path, index=indices[i])
+        fcurve.keyframe_points.add(len(pose_trs_curve))
+
+        for i, co in enumerate(pose_trs_curve):
+            fcurve.keyframe_points[i].co = co
+
         fcurve.update()
 
-    for i in range(0, 4):
-        data_path = base_path + '.rotation_quaternion'
-        fcurve = action.fcurves.new(data_path=data_path, index=i)
-        for t, y in zip(times, trses):
-            fcurve.keyframe_points.insert(FRAME_RATE * t, y[1][i])
-        fcurve.update()
-
-    for i in range(0,3):
-        data_path = base_path + '.scale'
-        fcurve = action.fcurves.new(data_path=data_path, index=i)
-        for t, y in zip(times, trses):
-            fcurve.keyframe_points.insert(FRAME_RATE * t, y[2][i])
-        fcurve.update()
-
-
-def trs_to_mat(trs):
-    m = Matrix.Translation(trs[0])
-    m = trs[1].to_matrix().to_4x4() * m
-    sm = Matrix.Identity(4)
-    for i in range(0,3): sm[i][i] = trs[2][i]
-    return sm * m
 
 def mul_trs(trs2, trs1):
     """Compute the composition of trs2 following trs1."""
@@ -240,88 +307,125 @@ def mul_trs(trs2, trs1):
 
     return (t3, r3, s3)
 
+def invert_trs(trs):
+    # TODO: also not right for non-uniform scalings
+    si = [1.0 / trs[2][i] for i in range(0,3)]
+    ri = trs[1].conjugated()
+    ti = Vector(trs[0])
+    ti[0] *= si[0]
+    ti[1] *= si[1]
+    ti[2] *= si[2]
+    ti = - (ri.to_matrix() * ti)
+    return (ti, ri, si)
 
 
 
-def convert_translation(t): return Vector([t[0], -t[2], t[1]])
-def convert_rotation(r):
-    r = [r[3], r[0], r[1], r[2]]
-    return Quaternion([r[0], r[1], -r[3], r[2]])
-def convert_scale(s): return Vector([s[0], s[2], s[1]])
+def build_pose_trs_curves(curves, rest_trs):
+    # This function takes as input a map sending the name of TRS pieces eg.
+    # 'translation' to the glTF curve for that piece, (time) -> (final_trs
+    # piece), in the pair of lists representation.
+    #
+    # It returns a list of ten (frame) -> (pose_trs component) curves in the
+    # list of pairs representation.
+    #
+    # It actually does several jobs:
+    #
+    # 1. resamples the input curves onto the union of their domains
+    # 2. fills in any missing curves with the value from the rest_trs to get the
+    #    final_trs
+    # 3. computes the pose_trs from the final_trs
+    # 4. projects the final_trs onto its ten component curves
+    # 5. converts from the time domain to the frame domain
+    #
+    # (The reason for doing all this in one function instead of a pipeline of
+    # simpler functions is to avoid creating large intermediate results.)
 
-def resample_onto_common_domain(curves, defaults):
-    index = {}
-    for target in curves.keys(): index[target] = 0
+    # We'll address the different paths by indices 0-3 instead of by name in
+    # this function.
+    curves = [
+        curves.get('translation', ([], [])),
+        curves.get('rotation', ([], [])),
+        curves.get('scale', ([], [])),
+    ]
+    convert_fns = [
+        convert_translation,
+        convert_rotation,
+        convert_scale,
+    ]
 
-    fetch_fns = {
-        'translation': convert_translation,
-        'rotation': convert_rotation,
-        'scale': convert_scale,
-    }
+    # Since the domains are sorted, we can process the curves in order. index[i]
+    # is the index of the first point in curves[i] that we haven't sampled yet.
+    index = [0, 0, 0]
 
-    domain = []
-    ordinates = []
+    inv_rest_trs = invert_trs(rest_trs)
+
+    trs_curves = [[], [], [], [], [], [], [], [], [], []]
 
     while True:
-        # Find the next smallest domain value
-        t = min((curves[key]['input'][index[key]]
-            for key in curves.keys()
-            if index[key] < len(curves[key]['input'])
+        # Find the smallest domain point we haven't sampled yet.
+        t = min((curves[i][0][index[i]]
+            for i in range(0, 3)
+            if index[i] < len(curves[i][0])
         ), default=None)
         if t == None:
             # Done!
             break
 
-        domain.append(t)
+        final_trs = []
 
-        ord = []
+        for i, curve in enumerate(curves):
+            inputs = curve[0]
+            outputs = curve[1]
+            convert = convert_fns[i]
 
-        for target in ['translation', 'rotation', 'scale']:
-            if target not in index:
-                ord.append(defaults[target])
-                continue
-
-            curve = curves[target]
-            input = curve['input']
-            output = curve['output']
-            fetch = fetch_fns[target]
-
-            if t < input[0]:
-                ord.append(fetch(output[0]))
-                continue
-
-            if t > input[-1] or index[target] == len(input):
-                ord.append(fetch(output[-1]))
-                continue
-
-            if t == input[index[target]]:
-                ord.append(fetch(output[index[target]]))
-                index[target] += 1
-                continue
-
-            if input[index[target]-1] < t < input[index[target]]:
-                left = index[target] - 1
-            elif input[index[target]] < t < input[index[target] + 1]:
-                left = index[target]
+            if len(inputs) == 0:
+                val = rest_trs[i]
             else:
-                assert(False)
-            right = left + 1
+                if t < inputs[0]:
+                    val = outputs[0]
+                elif t > inputs[-1] or index[i] == len(inputs):
+                    val = outputs[-1]
+                elif t == inputs[index[i]]:
+                    val = outputs[index[i]]
+                    index[i] += 1
+                else:
+                    # Lerp between the nearest two points
+                    if inputs[index[i]-1] < t < inputs[index[i]]:
+                        left = index[i] - 1
+                    elif inputs[index[i]] < t < inputs[index[i]+1]:
+                        left = index[i]
+                    else:
+                        assert(False)
+                    right = left + 1
+                    lam = (t - inputs[left]) / (inputs[right] - inputs[left])
+                    val = (1 - lam) * Vector(outputs[left]) + lam * Vector(outputs[right])
+                val = convert(val)
 
-            lam = (t - input[left]) / (input[right] - input[left])
-            lerp = (1 - lam) * fetch(output[left]) + lam * fetch(output[right])
-            ord.append(lerp)
+            final_trs.append(val)
 
-        ordinates.append(tuple(ord))
+        pose_trs = mul_trs(inv_rest_trs, final_trs)
 
-    return { 'input': domain, 'output': ordinates }
+        frame = t * FRAME_RATE
+        trs_curves[0].append([frame, pose_trs[0][0]])
+        trs_curves[1].append([frame, pose_trs[0][1]])
+        trs_curves[2].append([frame, pose_trs[0][2]])
+        trs_curves[3].append([frame, pose_trs[1][0]])
+        trs_curves[4].append([frame, pose_trs[1][1]])
+        trs_curves[5].append([frame, pose_trs[1][2]])
+        trs_curves[6].append([frame, pose_trs[1][3]])
+        trs_curves[7].append([frame, pose_trs[2][0]])
+        trs_curves[8].append([frame, pose_trs[2][1]])
+        trs_curves[9].append([frame, pose_trs[2][2]])
+
+    return trs_curves
 
 
 def approx_eq(x, y):
-    return abs(x - y) < 0.0001
+    return abs(x - y) < 0.00001
 
 
-def remove_superfluous_points(curve):
-    """Removes superfluous points from a curve.
+def cleanup_curve(curve):
+    """Removes superfluous points from a curve in list of pairs representation.
 
     A point is superfluous if it would result from lerping its neighbors and so
     has no need to be stored.
@@ -329,11 +433,10 @@ def remove_superfluous_points(curve):
 
     i = 1
     while i < len(curve[0]) - 1:
-        lam = (curve[0][i] - curve[0][i-1]) / (curve[0][i+1] - curve[0][i-1])
-        lerp = (1 - lam) * curve[1][i-1] + lam * curve[1][i+1]
-        if approx_eq(lerp, curve[1][i]):
-            del curve[0][i]
-            del curve[1][i]
+        lam = (curve[i][0] - curve[i-1][0]) / (curve[i+1][0] - curve[i-1][0])
+        lerp = (1 - lam) * curve[i-1][1] + lam * curve[i+1][1]
+        if approx_eq(lerp, curve[i][1]):
+            del curve[i]
             continue
 
         i += 1
