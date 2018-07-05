@@ -1,6 +1,4 @@
-import json
-import os
-import struct
+import json, os, struct
 
 import bpy
 from bpy.props import StringProperty

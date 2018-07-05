@@ -1,6 +1,7 @@
 import bmesh
 import bpy
 
+
 def convert_coordinates(v):
     """Convert glTF coordinate system to Blender."""
     return [v[0], -v[2], v[1]]
@@ -129,7 +130,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
                     uv = uvs[vert_idx]
                     uv_layer[loop_idx].uv = (uv[0], -uv[1])
 
-            # Assign joints by generating vertex groups
+        # Assign joints by generating vertex groups
         if kind.startswith('JOINTS_'):
             # Don't seem to need to deal with all_attributes here.
             # The only way I could find to set vertex groups was by

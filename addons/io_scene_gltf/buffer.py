@@ -1,31 +1,31 @@
+import base64, os, struct
+
 # This file handles creating buffers, buffer views, and accessors. It's pure
 # python and doesn't depend on Blender at all.
 #
 # Buffers and buffer views are represented with memoryviews so we can do
 # efficient slicing.
 
-import base64, os, struct
 
 def create_buffer(op, idx):
     """Create a memoryview for buffers[idx]."""
     buffer = op.gltf['buffers'][idx]
 
     # Handle GLB buffer
-    if op.glb_buffer and idx == 0 and 'uri' not in buffer:
+    if op.glb_buffer != None and idx == 0 and 'uri' not in buffer:
         return op.glb_buffer
 
     uri = buffer['uri']
 
     # Try to decode base64 data URIs
-    if uri[:5] == 'data:':
+    if uri.startswith('data:'):
         idx = uri.find(';base64,')
         if idx != -1:
-            base64_data = uri[idx+8:]
+            base64_data = uri[idx + len(';base64,'):]
             return memoryview(base64.b64decode(base64_data))
 
     # If we got here, assume it's a filepath
     buffer_location = os.path.join(op.base_path, uri)  # TODO: absolute paths?
-    print('Loading file', buffer_location)
     with open(buffer_location, 'rb') as fp:
         return memoryview(fp.read())
 
@@ -117,18 +117,23 @@ def create_accessor_from_properties(op, accessor):
         stride = stride or default_stride
     else:
         stride = default_stride
-        buf = [0] * (stride * count)
+        buf = b'\0' * (stride * count)
 
+
+    # Main decoding loop
     off = accessor.get('byteOffset', 0)
     result = []
-    while len(result) < count:
+    while len(result) != count:
         elem = struct.unpack_from(fmt, buf, offset=off)
-        if normalize:
-            elem = tuple([normalize(x) for x in elem])
-        if num_components == 1:
-            elem = elem[0]
         result.append(elem)
         off += stride
+    if normalize:
+        for i in range(0, count):
+            result[i] = tuple([normalize(x) for x in result[i]])
+    if num_components == 1:
+        for i in range(0, count):
+            result[i] = result[i][0]
+
 
     # A sparse property says "change the elements at these indices to these
     # values" where "these" are given in an accessor-like way, so we find the
