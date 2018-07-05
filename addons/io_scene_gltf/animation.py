@@ -169,11 +169,8 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
 
     action = action_cache[anim_id]
 
-    # This is the bone's rest TRS.
-    rest_trans = Vector(bone_vnode['trs'][0])
-    rest_rot = Quaternion(bone_vnode['trs'][1])
-    rest_scale = Vector(bone_vnode['trs'][2])
-    rest_trs = (rest_trans, rest_rot, rest_scale)
+
+    rest_trs = bone_vnode['trs']
 
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be

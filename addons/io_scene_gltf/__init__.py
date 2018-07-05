@@ -167,7 +167,6 @@ CREATE_FNS = {
     'material': material.create_material,
     'mesh': mesh.create_mesh,
     'camera': camera.create_camera,
-    'node': node.create_node,
 }
 
 # Add to a menu

@@ -1,13 +1,86 @@
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
-# TODO: comment all this
+# This file is responsible for creating the Blender scene graph from the glTF
+# node forest.
+#
+# The glTF node forest is homogenous; every node is of the same kind and is
+# transformed in the same way. It prefigures things like skinning or meshes
+# which are layered on top of it. By contrast Blender's scene graph is highly
+# heterogenous; there are different kinds of nodes and they are transformed in
+# different ways.
+#
+# IMO it makes sense to import the node forest into a homogenous structure, like
+# an armature in which every glTF is realized as a bone, but this proved highly
+# unpopular ("why is there an armature for a static mesh?!") :)
+#
+# So we create a heterogenous scene graph for the node forest. Every node in
+# Blender's graph corresponds to a glTF node except
+#
+# - there is an armature object inserted between the root of a skin and its
+#   parent
+# - nodes which were the joints of a skin become bones for the armature inserted
+#   for that skin; note that this imposes the following limitations on the glTF
+#   -- we don't support overlapping skins: a node may be the child of the root
+#      of only one skin
+#   -- since a bone may not have a non-uniform scaling in its
+#      rest position, any node used as a joint may not have a non-uniform scaling
+#      TODO: actually scalings that aren't (1,1,1) aren't well tested at all.
+# - there is an additional object to hold a mesh/camera inserted as a child of
+#   objects whose glTF node held a "mesh"/"camera" property
+#
+# To assist creating this scene graph, we first build a "virtual forest"
+# (vforest) of "virtual nodes" (vnodes) from the glTF which is a forest of
+# Python objects that mirrors the forest we want to create in Blender. Then we
+# realize the vforest by creating an actual Blender node for each vnode.
+#
+# Creating a virtual forest before creating the real one is easier since we can
+# modify the vnodes types, etc. as be build it up progressively which is not so
+# easy with actual Blender nodes. Also we can store additional data in the
+# vforest that is consumed by eg. the script that creates animation (and needs
+# to know rest TRS etc.).
+#
+#
+# Example glTF:
+#
+#              1          skins: [
+#             / \             {
+#  {mesh: 0} 2   5                "skeleton": 5,
+#               / \               "joints": [4,0,3,5]
+#              0   4          }
+#             /           ]
+#            3
+#
+# Resulting vforest (nodes that don't correspond to a glTF node are written *):
+#
+#                1
+#               / \
+#              2   * <- armature
+#             /     \
+#  mesh 0 -> *       5 <- bone
+#                   / \
+#          bone -> 0   4 <- bone
+#                 /
+#        bone -> 3
+
+
+def create_scenes(op):
+    create_vforest(op)
+    realize_vforest(op)
+    # Currently we create the whole graph in the current scene.
+    # TODO: write scene handling
+
 
 def create_vforest(op):
     nodes = op.gltf.get('nodes', [])
 
+    # A list of all vnodes (the order isn't relevant but it makes it easy to
+    # transverse them all to find the roots later on).
     vnodes = []
+    # Maps an index into the gltf's nodes array to its corresponding vnode
     id_to_vnode = {}
+
+    # Initial pass: create a vnode for each node
 
     for id, node in enumerate(nodes):
         vnode = {
@@ -23,6 +96,7 @@ def create_vforest(op):
         vnodes.append(vnode)
 
     # Fill in the parent/child relationships
+
     for id, node in enumerate(nodes):
         vnode = id_to_vnode[id]
         for child_id in node.get('children', []):
@@ -30,9 +104,10 @@ def create_vforest(op):
             child_vnode['parent'] = vnode
             vnode['children'].append(child_vnode)
 
-    # Insert armatures for the skins
     skins = op.gltf.get('skins', [])
     for skin_id, skin in enumerate(skins):
+        # Insert armatures for the skins between the root of the skin and their parent (if any).
+
         if 'skeleton' not in skin:
             raise Exception('unimplemented: skin missing skeleton attribute')
         skeleton_root_id = skin['skeleton']
@@ -59,6 +134,9 @@ def create_vforest(op):
         vnodes.append(armature)
         insert_parent(skeleton_root, armature)
 
+        # Mark all the children of the armature as being contained in that
+        # armature; we detect overlapping skins and bail in this pass.
+
         def mark_containing_armature(vnode):
             if 'armature_vnode' in vnode:
                 raise Exception('unsupported: a node (ID=%d) belongs to two different skins' % vnode['gltf_id'])
@@ -67,13 +145,16 @@ def create_vforest(op):
 
         mark_containing_armature(skeleton_root)
 
+        # Mark the joints as being of type 'BONE'
+        # TODO: what happens when there are non-bones beneath an armature node?
+
         for joint_node_id in skin['joints']:
             vnode = id_to_vnode[joint_node_id]
             vnode['type'] = 'BONE'
 
         # A curious fact is that bone positions in Blender are not specified
         # relative to their parent but relative to the containing armature. We
-        # compute those matrices for each bone now.
+        # compute the matrix relative to the armature for each bone now.
         def compute_bone_mats(vnode, parent_mat=Matrix.Identity(4)):
             mat = parent_mat
             if 'trs' in vnode:
@@ -85,7 +166,8 @@ def create_vforest(op):
 
         compute_bone_mats(armature)
 
-    # Insert meshes
+
+    # Insert nodes for the meshes
     for id, node in enumerate(nodes):
         if 'mesh' not in node: continue
 
@@ -105,9 +187,8 @@ def create_vforest(op):
 
     # TODO: cameras
 
-    # Find the roots
+    # Find the roots of the forest
     vnode_roots = [vnode for vnode in vnodes if not vnode['parent']]
-
 
     op.vnodes = vnodes
     op.vnode_roots = vnode_roots
@@ -115,16 +196,20 @@ def create_vforest(op):
 
 
 def realize_vforest(op):
+    """Create actual Blender nodes for the vnodes."""
+
     def realize_vnode(vnode):
         if vnode['type'] == 'NORMAL':
             ob = bpy.data.objects.new(vnode['name'], None)
             bpy.context.scene.objects.link(ob)
             vnode['blender_object'] = ob
+
             loc, rot, sca = vnode['trs']
             ob.location = loc
             ob.rotation_mode = 'QUATERNION'
             ob.rotation_quaternion = rot
             ob.scale = sca
+
             if vnode['parent']:
                 ob.parent = vnode['parent']['blender_object']
 
@@ -136,9 +221,7 @@ def realize_vforest(op):
             ob.parent = vnode['parent']['blender_object']
 
         elif vnode['type'] == 'ARMATURE':
-            #armature = bpy.data.armatures.new(vnode['name'])
-            #armature.show_x_ray = True
-            #ob = bpy.data.objects.new(vnode['name'], armature)
+            # TODO: don't use ops here?
             bpy.ops.object.add(type='ARMATURE', enter_editmode=True)
             ob = bpy.context.object
             ob.location = [0, 0, 0]
@@ -151,10 +234,16 @@ def realize_vforest(op):
             armature = vnode['armature_vnode']['blender_armature']
             bone = armature.edit_bones.new(vnode['name'])
             bone.use_connect = False
+
             bone.head = vnode['bone_matrix'] * Vector((0, 0, 0))
             bone.tail = vnode['bone_matrix'] * Vector((0, 1, 0))
             bone.align_roll(vnode['bone_matrix'] * Vector((0, 0, 1)) - bone.head)
+            # TODO: detect and warn about non-uniform scalings here
+
             vnode['blender_editbone'] = bone
+            # Remember the name because trying to access
+            # vnode['blender_editbone'].name after we exit editmode brings down
+            # the wrath of heaven.
             vnode['blender_name'] = bone.name
             if vnode['parent'] and 'blender_editbone' in vnode['parent']:
                 bone.parent = vnode['parent']['blender_editbone']
@@ -165,15 +254,18 @@ def realize_vforest(op):
         for child in vnode['children']:
             realize_vnode(child)
 
+        # Exit edit mode when we're done creating an armature
         if vnode['type'] == 'ARMATURE':
             bpy.ops.object.mode_set(mode='OBJECT')
 
     for root in op.vnode_roots:
         realize_vnode(root)
 
+
     # Now create the vertex groups for meshes; we do this in a second pass
     # because we need to have created all the bones so that we know what names
-    # Blender will assign them before we can do this.
+    # Blender will assign them before we can do this. (The actual joints/weights
+    # were assigned as part of mesh creation.)
     def create_vertex_groups(vnode):
         if vnode['type'] == 'MESH' and 'skin' in vnode:
             ob = vnode['blender_object']
@@ -195,14 +287,15 @@ def realize_vforest(op):
         create_vertex_groups(root)
 
 
+
 def trs_to_matrix(trs):
     loc, rot, sca = trs
     m = Matrix.Identity(4)
     m[0][0] = sca[0]
     m[1][1] = sca[1]
     m[2][2] = sca[2]
-    m = Quaternion(rot).to_matrix().to_4x4() * m
-    m = Matrix.Translation(Vector(loc)) * m
+    m = rot.to_matrix().to_4x4() * m
+    m = Matrix.Translation(loc) * m
     return m
 
 def get_trs(node):
@@ -223,61 +316,4 @@ def get_trs(node):
     rot = [rot[0], rot[1], -rot[3], rot[2]]
     loc = [loc[0], -loc[2], loc[1]]
 
-    return (loc, rot, sca)
-
-
-
-def create_node(op, idx):
-    node = op.gltf['nodes'][idx]
-    name = node.get('name', 'nodes[%d]' % idx)
-
-    if 'mesh' in node and 'camera' in node:
-        # Blender objects can't have >1 data item (I think?) so create some
-        # dummy children to hold them
-        ob = bpy.data.objects.new(name, None)
-        mesh_ob = bpy.data.objects.new(
-            name + '.mesh',
-            op.get('mesh', node['mesh'])
-        )
-        camera_ob = bpy.data.objects.new(
-            name + '.camera',
-            op.get('camera', node['camera'])
-        )
-        mesh_ob.parent = ob
-        camera_ob.parent = ob
-    elif 'mesh' in node:
-        ob = bpy.data.objects.new(name, op.get('mesh', node['mesh']))
-    elif 'camera' in node:
-        ob = bpy.data.objects.new(name, op.get('camera', node['camera']))
-    else:
-        ob = bpy.data.objects.new(name, None)
-
-    set_transform(node, ob)
-
-    for child_idx in node.get('children', []):
-        op.get('node', child_idx).parent = ob
-
-    return ob
-
-
-def create_scene(op, idx):
-    scene = op.gltf['scenes'][idx]
-    name = scene.get('name', 'scene[%d]' % idx)
-    scn = bpy.data.scenes.new(name)
-    scn.render.engine = 'CYCLES'
-
-    roots = scene.get('nodes', [])
-    for root_idx in roots:
-        def link_hierarchy(root):
-            scn.objects.link(root)
-            for child in root.children:
-                link_hierarchy(child)
-        link_hierarchy(op.get('node', root_idx))
-
-    return scn
-
-def create_scenes(op):
-    create_vforest(op)
-    realize_vforest(op)
-    #for i in range(0, len(op.gltf.get('scenes', []))):
-    #    create_scene(op, i)
+    return (Vector(loc), Quaternion(rot), Vector(sca))
