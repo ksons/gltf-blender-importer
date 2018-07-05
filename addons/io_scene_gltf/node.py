@@ -167,25 +167,34 @@ def create_vforest(op):
         compute_bone_mats(armature)
 
 
-    # Insert nodes for the meshes
+    # Insert nodes for the meshes/cameras
     for id, node in enumerate(nodes):
-        if 'mesh' not in node: continue
-
-        vnode = id_to_vnode[id]
-        mesh_id = node['mesh']
-        mesh = {
-            'name': op.gltf['meshes'][mesh_id].get('name', 'meshes[%d]' % mesh_id),
-            'children': [],
-            'type': 'MESH',
-            'mesh_id': mesh_id,
-            'parent': vnode,
-        }
-        if 'skin' in node:
-            mesh['skin'] = node['skin']
-        vnodes.append(mesh)
-        vnode['children'].append(mesh)
-
-    # TODO: cameras
+        if 'mesh' in node:
+            vnode = id_to_vnode[id]
+            mesh_id = node['mesh']
+            mesh = {
+                'name': op.gltf['meshes'][mesh_id].get('name', 'meshes[%d]' % mesh_id),
+                'children': [],
+                'type': 'MESH',
+                'mesh_id': mesh_id,
+                'parent': vnode,
+            }
+            if 'skin' in node:
+                mesh['skin'] = node['skin']
+            vnodes.append(mesh)
+            vnode['children'].append(mesh)
+        if 'camera' in node:
+            vnode = id_to_vnode[id]
+            camera_id = node['camera']
+            camera = {
+                'name': op.gltf['cameras'][camera_id].get('name', 'cameras[%d]' % camera_id),
+                'children': [],
+                'type': 'CAMERA',
+                'camera_id': camera_id,
+                'parent': vnode,
+            }
+            vnodes.append(camera)
+            vnode['children'].append(camera)
 
     # Find the roots of the forest
     vnode_roots = [vnode for vnode in vnodes if not vnode['parent']]
@@ -215,6 +224,13 @@ def realize_vforest(op):
 
         elif vnode['type'] == 'MESH':
             data = op.get('mesh', vnode['mesh_id'])
+            ob = bpy.data.objects.new(vnode['name'], data)
+            bpy.context.scene.objects.link(ob)
+            vnode['blender_object'] = ob
+            ob.parent = vnode['parent']['blender_object']
+
+        elif vnode['type'] == 'CAMERA':
+            data = op.get('camera', vnode['camera_id'])
             ob = bpy.data.objects.new(vnode['name'], data)
             bpy.context.scene.objects.link(ob)
             vnode['blender_object'] = ob
