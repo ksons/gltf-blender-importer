@@ -67,8 +67,8 @@ from mathutils import Matrix, Quaternion, Vector
 def create_scenes(op):
     create_vforest(op)
     realize_vforest(op)
-    # Currently we create the whole graph in the current scene.
-    # TODO: write scene handling
+
+    link_forest_into_scenes(op)
 
 
 def create_vforest(op):
@@ -210,7 +210,6 @@ def realize_vforest(op):
     def realize_vnode(vnode):
         if vnode['type'] == 'NORMAL':
             ob = bpy.data.objects.new(vnode['name'], None)
-            bpy.context.scene.objects.link(ob)
             vnode['blender_object'] = ob
 
             loc, rot, sca = vnode['trs']
@@ -225,21 +224,20 @@ def realize_vforest(op):
         elif vnode['type'] == 'MESH':
             data = op.get('mesh', vnode['mesh_id'])
             ob = bpy.data.objects.new(vnode['name'], data)
-            bpy.context.scene.objects.link(ob)
             vnode['blender_object'] = ob
             ob.parent = vnode['parent']['blender_object']
 
         elif vnode['type'] == 'CAMERA':
             data = op.get('camera', vnode['camera_id'])
             ob = bpy.data.objects.new(vnode['name'], data)
-            bpy.context.scene.objects.link(ob)
             vnode['blender_object'] = ob
             ob.parent = vnode['parent']['blender_object']
 
         elif vnode['type'] == 'ARMATURE':
-            # TODO: don't use ops here?
+            # TODO: don't use ops here
             bpy.ops.object.add(type='ARMATURE', enter_editmode=True)
             ob = bpy.context.object
+
             ob.location = [0, 0, 0]
             vnode['blender_armature'] = ob.data
             vnode['blender_object'] = ob
@@ -270,9 +268,14 @@ def realize_vforest(op):
         for child in vnode['children']:
             realize_vnode(child)
 
-        # Exit edit mode when we're done creating an armature
         if vnode['type'] == 'ARMATURE':
+            # Exit edit mode when we're done creating an armature
             bpy.ops.object.mode_set(mode='OBJECT')
+
+            # Now that we're back in object mode, unlink the armature; we'll
+            # link it again later on in its proper place.
+            bpy.context.scene.objects.unlink(vnode['blender_object'])
+
 
     for root in op.vnode_roots:
         realize_vnode(root)
@@ -333,3 +336,50 @@ def get_trs(node):
     loc = [loc[0], -loc[2], loc[1]]
 
     return (Vector(loc), Quaternion(rot), Vector(sca))
+
+
+def link_tree(scene, vnode):
+    """Link all the Blender objects under vnode into the given Blender scene."""
+    if 'blender_object' in vnode:
+        scene.objects.link(vnode['blender_object'])
+    for child in vnode['children']:
+        link_tree(scene, child)
+
+def link_forest_into_scenes(op):
+    """Link the realized forest into scenes."""
+    if op.import_under_current_scene:
+        # Link everything into the current scene
+
+        for root_vnode in op.vnode_roots:
+            link_tree(bpy.context.scene, root_vnode)
+
+        # Should we do this?
+        bpy.context.scene.render.engine = 'CYCLES'
+
+    else:
+        # Creates scenes to match the glTF scenes
+
+        default_scene_id = op.gltf.get('scene')
+
+        scenes = op.gltf.get('scenes', [])
+        for i, scene in enumerate(scenes):
+            name = scene.get('name', 'scenes[%d]' % i)
+            blender_scene = bpy.data.scenes.new(name)
+            blender_scene.render.engine = 'CYCLES'
+
+            roots = scene.get('nodes', [])
+            for node_id in roots:
+                vnode = op.id_to_vnode[node_id]
+
+                # A root of the glTF forest isn't necessarily a root of the vforest.
+                # Find the real root.
+                def find_root(vnode):
+                    if vnode['parent'] == None: return vnode
+                    return find_root(vnode['parent'])
+                root_vnode = find_root(vnode)
+
+                link_tree(blender_scene, root_vnode)
+
+                # Select this scene if it is the default
+                if i == default_scene_id:
+                    bpy.context.screen.scene = blender_scene

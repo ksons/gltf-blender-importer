@@ -1,7 +1,7 @@
 import json, os, struct
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 from bpy_extras.io_utils import ImportHelper
 
 from io_scene_gltf import animation, buffer, camera, material, mesh, node
@@ -34,10 +34,20 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         default='*.gltf;*.glb',
         options={'HIDDEN'},
     )
+    import_under_current_scene = BoolProperty(
+        name='Import under Current Scene',
+        description=
+            'When enabled, all the objects will be placed in the current '
+            'scene and no scenes will be created.\n\n'
+            'When disabled, scenes will be created to match the ones in the '
+            'glTF file. Any object not in a scene will not be visible.',
+        default=False,
+    )
 
     def execute(self, context):
         self.caches = {}
 
+        self.load_config()
         self.load()
         self.check_version()
         self.check_required_extensions()
@@ -156,6 +166,13 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         # for ext in self.gltf.get('extensionsRequired', []):
         #    if ext not in EXTENSIONS:
         #        raise Exception('unsupported extension was required: %s' % ext)
+
+
+    def load_config(self):
+        """Load user-supplied options into instance vars."""
+        keywords = self.as_keywords()
+        self.import_under_current_scene = keywords['import_under_current_scene']
+
 
 
 CREATE_FNS = {
