@@ -204,9 +204,9 @@ def create_mesh(op, idx):
     for material in materials:
         me.materials.append(material)
 
-    # TODO: Do we need this?
-    for polygon in me.polygons:
-        polygon.use_smooth = True
+    if op.smooth_polys:
+        for polygon in me.polygons:
+            polygon.use_smooth = True
 
     me.update()
 

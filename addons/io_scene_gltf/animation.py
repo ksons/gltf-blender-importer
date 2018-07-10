@@ -17,11 +17,6 @@ from mathutils import Vector, Quaternion, Matrix
 # time.
 
 
-# Scale sampler input ("time") by this to get the frame of the
-# animation.
-# TODO: think more about how to do this?
-FRAME_RATE = 60
-
 # Quotes a string using double-quotes (used for Blender data paths).
 def quote(s): return json.dumps(s)
 
@@ -136,7 +131,7 @@ def add_action(op, animation_id, node_id, curves):
                 fcurve.keyframe_points.add(len(curve[0]))
 
             for k, (t, y) in enumerate(zip(curve[0], curve[1])):
-                frame = t * FRAME_RATE
+                frame = t * op.framerate
                 y = convert(y)
                 for i, fcurve in enumerate(fcurves):
                     fcurve.keyframe_points[k].co = [frame, y[i]]
@@ -213,7 +208,7 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     # compute the (time) -> (pose_trs) curve, project it into its ten components
     # to get ten curves, and these are the fcurves Blender requires.
 
-    pose_trs_curves = build_pose_trs_curves(curves, rest_trs)
+    pose_trs_curves = build_pose_trs_curves(op, curves, rest_trs)
 
     # pose_trs_curves is a list of ten (time) -> (final_trs component) curves,
     # in the list of pairs representation. (Actually, they're (frame) ->
@@ -317,7 +312,7 @@ def invert_trs(trs):
 
 
 
-def build_pose_trs_curves(curves, rest_trs):
+def build_pose_trs_curves(op, curves, rest_trs):
     # This function takes as input a map sending the name of TRS pieces eg.
     # 'translation' to the glTF curve for that piece, (time) -> (final_trs
     # piece), in the pair of lists representation.
@@ -402,7 +397,7 @@ def build_pose_trs_curves(curves, rest_trs):
 
         pose_trs = mul_trs(inv_rest_trs, final_trs)
 
-        frame = t * FRAME_RATE
+        frame = t * op.framerate
         trs_curves[0].append([frame, pose_trs[0][0]])
         trs_curves[1].append([frame, pose_trs[0][1]])
         trs_curves[2].append([frame, pose_trs[0][2]])
