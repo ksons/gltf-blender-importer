@@ -4,7 +4,7 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, FloatProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import animation, buffer, camera, material, mesh, node
+from io_scene_gltf import animation, buffer, camera, material, mesh, node, node_groups
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
@@ -197,6 +197,7 @@ CREATE_FNS = {
     'accessor': buffer.create_accessor,
     'image': material.create_image,
     'material': material.create_material,
+    'node_group': node_groups.create_group,
     'mesh': mesh.create_mesh,
     'camera': camera.create_camera,
 }
