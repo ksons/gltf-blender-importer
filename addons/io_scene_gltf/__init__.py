@@ -195,6 +195,7 @@ CREATE_FNS = {
     'buffer': buffer.create_buffer,
     'buffer_view': buffer.create_buffer_view,
     'accessor': buffer.create_accessor,
+    'image': material.create_image,
     'material': material.create_material,
     'mesh': mesh.create_mesh,
     'camera': camera.create_camera,

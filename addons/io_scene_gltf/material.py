@@ -6,58 +6,52 @@ import bpy
 from bpy_extras.image_utils import load_image
 
 
-def do_with_temp_file(contents, func):
-    """Call func with the path to a temp file containing contents.
+def create_image(op, idx):
+    image = op.gltf['images'][idx]
 
-    The temp file will be deleted before this function returns.
-    """
-    path = None
-    try:
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        path = tmp.name
-        tmp.write(contents)
-        tmp.close()  # Have to close so func can open it
-        return func(path)
-    finally:
-        if path:
-            os.remove(path)
-
-
-def create_texture(op, idx, name, tree):
-    texture = op.gltf['textures'][idx]
-    source = op.gltf['images'][texture['source']]
-
-    tex_image = tree.nodes.new('ShaderNodeTexImage')
-
-    # Don't know how to load an image from memory, so if the data is
-    # in a buffer or data URI, we'll write it to a temp file and use
-    # this to load it from the temp file's path.
-    # Yes, this is kind of a hack :)
-    def load_from_temp(path):
-        tex_image.image = load_image(path)
-
-        # Need to pack the image into the .blend file or it will go
-        # away as soon as the temp file is deleted.
-        tex_image.image.pack()  # TODO: decide on tradeoff for using as_png
-
-    if 'uri' in source:
-        uri = source['uri']
+    img = None
+    if 'uri' in image:
+        uri = image['uri']
         is_data_uri = uri[:5] == 'data:'
         if is_data_uri:
             found_at = uri.find(';base64,')
             if found_at == -1:
                 print("Couldn't read data URI; not base64?")
             else:
-                buf = base64.b64decode(uri[found_at + 8:])
-                do_with_temp_file(buf, load_from_temp)
+                buffer = base64.b64decode(uri[found_at + 8:])
         else:
+            # Load the image from disk
             image_location = os.path.join(op.base_path, uri)
-            tex_image.image = load_image(image_location)
-
-        tex_image.label = name
+            img = load_image(image_location)
     else:
-        buf, _stride = op.get('buffer_view', source['bufferView'])
-        do_with_temp_file(buf, load_from_temp)
+        buffer, _stride = op.get('buffer_view', image['bufferView'])
+
+    if not img:
+        # The image data is in buffer, but I don't know how to load an image
+        # from memory, we'll write it to a temp file and load it from there.
+        # Yes, this is a hack :)
+        path = None
+        try:
+            tmp = tempfile.NamedTemporaryFile(delete=False)
+            path = tmp.name
+            tmp.write(buffer)
+            tmp.close()
+            img = load_image(path)
+            img.pack()  # TODO: should we use as_png?
+        finally:
+            if path:
+                os.remove(path)
+
+    return img
+
+
+def create_texture_node(op, idx, name, tree):
+    texture = op.gltf['textures'][idx]
+
+    tex_image = tree.nodes.new('ShaderNodeTexImage')
+    tex_image.name = name
+    tex_image.label = name
+    tex_image.image = op.get('image', texture['source'])
 
     return tex_image
 
@@ -222,17 +216,18 @@ def create_material_from_properties(op, material, material_name):
     # TODO texCoord property
     if 'baseColorTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['baseColorTexture']['index']
-        tex = create_texture(op, image_idx, 'baseColorTexture', tree)
+        tex = create_texture_node(op, image_idx, 'baseColorTexture', tree)
         tex.location = -580, 200
         links.new(tex.outputs[0], group_node.inputs[1])
     if 'metallicRoughnessTexture' in pbr_metallic_roughness:
         image_idx = pbr_metallic_roughness['metallicRoughnessTexture']['index']
-        tex = create_texture(op, image_idx, 'metallicRoughnessTexture', tree)
+        tex = create_texture_node(op, image_idx, 'metallicRoughnessTexture', tree)
         tex.location = -580, -150
         links.new(tex.outputs[0], group_node.inputs[4])
     if 'normalTexture' in material:
+        # TODO: need to convert normal coords?
         image_idx = material['normalTexture']['index']
-        tex = create_texture(op, image_idx, 'normalTexture', tree)
+        tex = create_texture_node(op, image_idx, 'normalTexture', tree)
         tex.location = -342, -366
         tex.color_space = 'NONE'
         normal_map_node = tree.nodes.new('ShaderNodeNormalMap')
@@ -242,7 +237,7 @@ def create_material_from_properties(op, material, material_name):
         # TODO scale
     if 'emissiveTexture' in material:
         image_idx = material['emissiveTexture']['index']
-        tex = create_texture(op, image_idx, 'emissiveTexture', tree)
+        tex = create_texture_node(op, image_idx, 'emissiveTexture', tree)
         tex.location = 113, -291
         emission_node = tree.nodes.new('ShaderNodeEmission')
         emission_node.location = 284, -254
