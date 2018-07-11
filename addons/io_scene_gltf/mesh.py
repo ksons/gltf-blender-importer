@@ -176,6 +176,18 @@ def create_mesh(op, idx):
             if kind.startswith('TEXCOORD_'):
                 layers['uv_layers'].add(kind)
 
+    # Also, if any of the materials used in this mesh use COLOR_0 attributes, we
+    # need to request that that layer be created; else the Attribute node
+    # referencing COLOR_0 in those materials will produce a solid red color. See
+    # material.compute_materials_using_color0, which, note,  must be called
+    # before this function.
+    use_color0 = any(
+        prim.get('material', 'default_material') in op.materials_using_color0
+        for prim in primitives
+    )
+    if use_color0:
+        layers['vertex_colors'].add('COLOR_0')
+
     # Make a list of all the materials this mesh will need; the material on a
     # poly is set by giving an index into this list.
     materials = list(set(

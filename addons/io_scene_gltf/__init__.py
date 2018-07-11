@@ -66,6 +66,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_version()
         self.check_required_extensions()
 
+        material.compute_materials_using_color0(self)
         node.create_scenes(self)
         animation.add_animations(self)
 

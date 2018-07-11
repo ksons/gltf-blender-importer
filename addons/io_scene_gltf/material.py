@@ -59,15 +59,17 @@ def create_texture_node(op, idx, name, tree):
 
 
 def create_material(op, idx):
+    use_color0 = idx in op.materials_using_color0
+
     if idx == 'default_material':
-        return create_material_from_properties(op, {}, 'gltf Default Material')
+        return create_material_from_properties(op, {}, 'gltf Default Material', use_color0)
 
     material = op.gltf['materials'][idx]
     material_name = material.get('name', 'materials[%d]' % idx)
-    return create_material_from_properties(op, material, material_name)
+    return create_material_from_properties(op, material, material_name, use_color0)
 
 
-def create_material_from_properties(op, material, material_name):
+def create_material_from_properties(op, material, material_name, use_color0):
     pbr_metallic_roughness = material.get('pbrMetallicRoughness', {})
 
     mat = bpy.data.materials.new(material_name)
@@ -124,6 +126,39 @@ def create_material_from_properties(op, material, material_name):
         tex.location = -504, -592
         links.new(tex.outputs[0], group_node.inputs['Emissive'])
 
+    if use_color0:
+        node = tree.nodes.new('ShaderNodeAttribute')
+        node.name = 'Vertex Color'
+        node.location = -201, -620
+        node.attribute_name = 'COLOR_0'
+        links.new(node.outputs[0], group_node.inputs['COLOR_0'])
+        group_node.inputs['Use COLOR_0'].default_value = 1.0
+
+
     # TODO: finish wiring everything up
 
     return mat
+
+
+def compute_materials_using_color0(op):
+    """Compute which materials use vertex color COLOR_0.
+
+    I don't know how to have a material be influenced by vertex colors when a
+    mesh has them and not be when they aren't. If you slot in an attribute node
+    it will emit solid red when the attribute layer is missing (if it produced
+    solid white everything would be fine) and, of course, if you don't the
+    attribute won't influence the material.
+
+    Hence this work-around: we compute for each material whether it is ever used
+    in a primitive that uses vertex colors and mark it down. For these materials
+    only we slot in an attribute node for vertex colors. In mesh.py we also need
+    to make sure that any mesh that uses one of these materials has a COLOR_0
+    attribute.
+    """
+    op.materials_using_color0 = set()
+    for mesh in op.gltf.get('meshes', []):
+        primitives = mesh['primitives']
+        for primitive in mesh['primitives']:
+            if 'COLOR_0' in primitive['attributes']:
+                mat = primitive.get('material', 'default_material')
+                op.materials_using_color0.add(mat)
