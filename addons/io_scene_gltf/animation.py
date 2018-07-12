@@ -106,7 +106,7 @@ def add_action(op, animation_id, node_id, curves):
 
     triples = [
         # (glTF path name, Blender path name, number of components)
-        ('translation', 'translation', 3),
+        ('translation', 'location', 3),
         ('rotation', 'rotation_quaternion', 4),
         ('scale', 'scale', 3)
     ]
@@ -264,9 +264,9 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
 
         # Check if the whole curve is superfluous (constantly its default value)
         if (
-            len(pose_trs_curve[1]) == 2 and
-            approx_eq(pose_trs_curve[1][0], defaults[i]) and
-            approx_eq(pose_trs_curve[1][0], pose_trs_curve[1][1])
+            len(pose_trs_curve) == 2 and
+            approx_eq(pose_trs_curve[0][1], defaults[i]) and
+            approx_eq(pose_trs_curve[0][1], pose_trs_curve[1][1])
         ):
             continue
 
@@ -424,7 +424,7 @@ def cleanup_curve(curve):
     """
 
     i = 1
-    while i < len(curve[0]) - 1:
+    while i < len(curve) - 1:
         lam = (curve[i][0] - curve[i-1][0]) / (curve[i+1][0] - curve[i-1][0])
         lerp = (1 - lam) * curve[i-1][1] + lam * curve[i+1][1]
         if approx_eq(lerp, curve[i][1]):
