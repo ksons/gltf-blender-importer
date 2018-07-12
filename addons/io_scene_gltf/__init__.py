@@ -4,7 +4,7 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, FloatProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import animation, buffer, camera, material, mesh, node, node_groups
+from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
@@ -67,7 +67,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_required_extensions()
 
         material.compute_materials_using_color0(self)
-        node.create_scenes(self)
+        scene.create_scenes(self)
         animation.add_animations(self)
 
         return {'FINISHED'}
