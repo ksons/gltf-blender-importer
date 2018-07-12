@@ -34,20 +34,19 @@ from mathutils import Matrix, Quaternion, Vector
 #
 #           0      skins: [{                    0
 #          / \       skeleton: 2,              / \
-#         1   2      joints: [2,3,4]          1   * <- Armature
+#         1   2      joints: [3,4]            1   * <- Armature
 #            / \   }]                              \
 #           3   4                                   2 <- bone
 #                                                  / \
 #                                         bone -> 3   4 <- bone
 #
-#    Note that nodes listed in the joints array for a skin become bones in
-#    Blender. This imposes the following limitation on the glTF files we can
-#    handle: skins must not overlap. There is also some difficulty when not all
-#    the children of an Armature vnode are bones.
+#    Note that nodes all the child nodes of the skin's skeleton node become
+#    bones regardless of whether they're joints in the skin. Also note that this
+#    imposes the following limitation on the glTF files we can handle: skins
+#    must not overlap.
 #
-#    Note that because of this, a glTF that is a root may not correspond to a
-#    vnode that is a root (because a dummy Armature might have been inserted
-#    above it).
+#    Because of this, a glTF that is a root may not correspond to a vnode that
+#    is a root (because a dummy Armature might have been inserted above it).
 #
 # 2. Cameras
 #
@@ -65,11 +64,17 @@ from mathutils import Matrix, Quaternion, Vector
 #                                                 /     \
 #                                      camera -> *       * <- camera
 #
-# 3. Meshes on bone vnodes
+# 3. Meshes and cameras on bone vnodes
 #
-#    Blender bones cannot have a mesh so any vnode that is a bone needs to have
-#    a dummy child inserted to hold the mesh just like a dummy child is always
-#    inserted for cameras.
+#    All nodes below an armature become bones in the vforest, but what if there
+#    is a mesh or camera below a bone? Blender can handle this: you set the
+#    parent of the object to the armature object, set the parent type to BONE
+#    and set the parent bone to the desired bone. But this places the child
+#    object at the tail of the bone: it should be at the head. So we need to
+#    apply a translation along the tail-to-head vector to bring it back.
+#
+#    Of course, because of (2), cameras always already get a dummy node. So this
+#    case is really about meshes.
 #
 #              glTF:                                vforest:
 #
@@ -81,8 +86,9 @@ from mathutils import Matrix, Quaternion, Vector
 #                                                   /
 #                                          mesh -> *
 #
-# TODO: we might also need dummies between an object that has a bone parent (to
-# move it from tail to head, see TODO below)
+#    Note that the structure of the vforest below an Aramature therefore
+#    consists entirely of bones, except possibly the leaves, which may be dummy
+#    nodes with meshes or cameras in them.
 
 def create_scenes(op):
     create_vforest(op)
@@ -155,21 +161,17 @@ def create_vforest(op):
         vnodes.append(armature)
         insert_parent(skeleton_root, armature)
 
-        # Mark all the children of the armature as being contained in that
-        # armature; we detect overlapping skins and bail in this pass.
-        def mark_containing_armature(vnode):
+        # Mark all the children of the armature as bones.
+        # We detect overlapping skins and bail in this pass.
+        def mark_bones(vnode):
             if 'armature_vnode' in vnode:
                 raise Exception('unsupported: a node (ID=%d) belongs to two different skins' % vnode['gltf_id'])
             vnode['armature_vnode'] = armature
-            for child in vnode['children']: mark_containing_armature(child)
-
-        mark_containing_armature(skeleton_root)
-
-        # Mark the joints as being of type 'BONE'
-        # TODO: what happens when there are non-bones beneath an armature node?
-        for joint_node_id in skin['joints']:
-            vnode = id_to_vnode[joint_node_id]
             vnode['type'] = 'BONE'
+            for child in vnode['children']:
+                mark_bones(child)
+
+        mark_bones(skeleton_root)
 
         # A curious fact is that bone positions in Blender are not specified
         # relative to their parent but relative to the containing armature. We
@@ -180,6 +182,9 @@ def create_vforest(op):
                 mat = parent_mat * trs_to_matrix(vnode['trs'])
             if vnode['type'] == 'BONE':
                 vnode['bone_matrix'] = mat
+                # Also compute the tail-head vector (this is used for when a
+                # mesh/camera is a child of a bone)
+                vnode['tail_to_head'] = mat * Vector((-1, 1, 0))
             for child in vnode['children']:
                 compute_bone_mats(child, Matrix(mat))
 
@@ -197,7 +202,7 @@ def create_vforest(op):
             else:
                 mesh_id = node['mesh']
                 mesh_vnode = {
-                    'name': op.gltf['meshes'][mesh_id].get('mesh', 'meshes[%d]' % mesh_id),
+                    'name': op.gltf['meshes'][mesh_id].get('name', 'meshes[%d]' % mesh_id),
                     'children': [],
                     'type': 'NORMAL',
                     'mesh_id': mesh_id,
@@ -256,11 +261,17 @@ def realize_vforest(op):
                 if 'blender_object' in vnode['parent']:
                     ob.parent = vnode['parent']['blender_object']
                 else:
-                    # TODO: the parent is a bone; we can do this but we might
-                    # need a dummy node in between to move the object from the
-                    # tail (where it naturally goes when we make it a child) to
-                    # the head (where I think it should go)
-                    print('warning: object had non-object parent; things might go wrong')
+                    assert(vnode['parent']['type'] == 'BONE')
+                    ob.parent = vnode['parent']['armature_vnode']['blender_object']
+                    ob.parent_type = 'BONE'
+                    ob.parent_bone = vnode['parent']['blender_name']
+
+                    # We need to apply a translation so the object is at the
+                    # head of the bone, not the tail, like it normally is
+                    # TODO: this isn't the right one though -__-;;;
+                    assert('trs' not in vnode)
+                    ob.location = vnode['parent']['tail_to_head']
+
 
         elif vnode['type'] == 'ARMATURE':
             # TODO: don't use ops here
@@ -273,6 +284,7 @@ def realize_vforest(op):
 
             if vnode['parent']:
                 ob.parent = vnode['parent']['blender_object']
+
 
         elif vnode['type'] == 'BONE':
             armature = vnode['armature_vnode']['blender_armature']
@@ -293,10 +305,8 @@ def realize_vforest(op):
             if vnode['parent']:
                 if 'blender_editbone' in vnode['parent']:
                     bone.parent = vnode['parent']['blender_editbone']
-                elif vnode['parent']['type'] != 'ARMATURE':
-                    # TODO: a bone is the child of an object; can we do this in
-                    # Blender?
-                    print('warn: bone had non-bone parent; things might go wrong')
+                else:
+                    assert(vnode['parent']['type'] == 'ARMATURE')
 
         else:
             assert(False)
