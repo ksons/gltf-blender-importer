@@ -47,7 +47,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'scene and no scenes will be created.\n'
             'When disabled, scenes will be created to match the ones in the '
             'glTF file. Any object not in a scene will not be visible.',
-        default=False,
+        default=True,
     )
     smooth_polys = BoolProperty(
         name='Enable polygon smoothing',
@@ -55,6 +55,11 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'Enable smoothing for all polygons in imported meshes. Suggest '
             'disabling for low-res models.',
         default=True,
+    )
+    import_animations = BoolProperty(
+        name='Import Animations (EXPERIMENTAL)',
+        description='',
+        default=False,
     )
     framerate = FloatProperty(
         name='Frames/second',
@@ -74,9 +79,25 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         material.compute_materials_using_color0(self)
         scene.create_scenes(self)
-        animation.add_animations(self)
+        if self.import_animations:
+            animation.add_animations(self)
 
         return {'FINISHED'}
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.prop(self, 'import_under_current_scene')
+
+        col = layout.box().column()
+        col.label('Mesh:', icon='MESH_DATA')
+        col.prop(self, 'smooth_polys')
+
+        col = layout.box().column()
+        col.label('Animation:', icon='OUTLINER_DATA_POSE')
+        col.prop(self, 'import_animations')
+        col.prop(self, 'framerate')
+
 
     def get(self, type, id):
         cache = self.caches.setdefault(type, {})
@@ -189,6 +210,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         keywords = self.as_keywords()
         self.import_under_current_scene = keywords['import_under_current_scene']
         self.smooth_polys = keywords['smooth_polys']
+        self.import_animations = keywords['import_animations']
         self.framerate = keywords['framerate']
 
 
