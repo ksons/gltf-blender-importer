@@ -1,9 +1,11 @@
 import base64
 import os
 import tempfile
+import math
 
 import bpy
 from bpy_extras.image_utils import load_image
+from mathutils import Vector
 
 
 def create_image(op, idx):
@@ -86,7 +88,6 @@ def create_material_from_properties(op, material, material_name, use_color0):
     links.new(g.outputs[0], mo.inputs[0])
 
 
-    # Fill in all properties
 
     # Alpha mode affects many things...
     alpha_mode = material.get('alphaMode', 'OPAQUE')
@@ -127,6 +128,7 @@ def create_material_from_properties(op, material, material_name, use_color0):
     next_texcoord_node_y = [141]
 
     def texture_node(name, props):
+        """Create a texture node from an textureInfo dict."""
         texture = op.gltf['textures'][props['index']]
 
         if 'MSFT_texture_dds' in props.get('extensions', {}):
@@ -140,8 +142,40 @@ def create_material_from_properties(op, material, material_name, use_color0):
         tex.image = op.get('image', image_id)
         tex.width = 216
 
-        # Wire up any texcoord if necessary
         texcoord = props.get('texCoord', 0)
+
+        # Handle any texture transform
+        # TODO: test this!!!
+        xform = None
+        if 'KHR_texture_transform' in texture.get('extensions', {}):
+            t = texture['extensions']['KHR_texture_transform']
+
+            texcoord = t.get('texCoord', texcoord)
+            offset = t.get('offset', [0, 0])
+            rotation = t.get('rotation', 0)
+            scale = t.get('scale', [1, 1])
+
+            # We need a coordinate change since we change (u,v)->(u,1-v) when we
+            # come into Blender. My calculation gave this but again it is NOT
+            # TESTED! It does fix the identity though, so that's promising :)
+            z = scale[1] * Vector((-math.sin(rotation), -math.cos(rotation)))
+            offset, rotation, scale = (
+                z + Vector((offset[0], 1 - offset[1])),
+                -rotation,
+                [scale[0], scale[1]],
+            )
+
+            xform = tree.nodes.new('ShaderNodeMapping')
+            xform.vector_type = 'VECTOR' # TODO: or 'TEXTURE'?
+            xform.translation[0] = offset[0]
+            xform.translation[1] = offset[1]
+            xform.rotation[2] = rotation
+            xform.scale[0] = scale[0]
+            xform.scale[1] = scale[1]
+            # TODO: put it in some good location
+
+        # Wire the texcoord into either the transform if it exists, or directly
+        # to the texture node
         if texcoord != 0:
             if texcoord not in texcoord_nodes:
                 texcoord_node = tree.nodes.new('ShaderNodeUVMap') # TODO: is this the right kind of node?
@@ -149,7 +183,12 @@ def create_material_from_properties(op, material, material_name, use_color0):
                 texcoord_node.location = -812, next_texcoord_node_y[0]
                 next_texcoord_node_y[0] -= 120
                 texcoord_nodes[texcoord] = texcoord_node
-            links.new(texcoord_nodes[texcoord].outputs[0], tex.inputs[0])
+            if xform:
+                links.new(texcoord_nodes[texcoord].outputs[0], xform.inputs[0])
+                links.new(xform.outputs[0], tex.inputs[0])
+            else:
+                links.new(texcoord_nodes[texcoord].outputs[0], tex.inputs[0])
+
 
         # Do the sampler properties
         # TODO: these don't map very easily to a Blender Image Texture Node so

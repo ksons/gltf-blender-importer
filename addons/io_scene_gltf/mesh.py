@@ -130,7 +130,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
             for polygon in me.polygons:
                 for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
                     uv = uvs[vert_idx]
-                    uv_layer[loop_idx].uv = (uv[0], -uv[1])
+                    uv_layer[loop_idx].uv = (uv[0], 1 - uv[1])
 
 
     # Assign joints/weights. We begin by collecting all the sets (multiple sets
