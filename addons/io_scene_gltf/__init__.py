@@ -52,7 +52,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     smooth_polys = BoolProperty(
         name='Enable polygon smoothing',
         description=
-            'Enable smoothing for all polygons in all imported meshes.',
+            'Enable smoothing for all polygons in imported meshes. Suggest '
+            'disabling for low-res models.',
         default=True,
     )
     framerate = FloatProperty(
