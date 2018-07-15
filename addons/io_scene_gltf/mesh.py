@@ -156,7 +156,8 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         for i, vert in enumerate(bme.verts):
             for joint_set, weight_set in zip(joint_sets, weight_sets):
                 for j in range(0, 4):
-                    vert[layer][joint_set[i][j]] = weight_set[i][j]
+                    if weight_set[i][j] != 0:
+                        vert[layer][joint_set[i][j]] = weight_set[i][j]
         bme.to_mesh(me)
         bme.free()
 
