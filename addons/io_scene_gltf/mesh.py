@@ -113,10 +113,12 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
                 me.vertex_colors.new(kind)
             rgba_layer = me.vertex_colors[kind].data
             colors = op.get('accessor', accessor_id)
+            if colors and len(colors[0]) == 3:
+                # rgb -> rgba
+                colors = [color+[1] for color in colors]
             for polygon in me.polygons:
                 for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
                     color = colors[vert_idx]
-                    if len(color) == 3: color.append(1.0) # Add alpha component
                     rgba_layer[loop_idx].color = colors[vert_idx]
 
         if kind.startswith('TEXCOORD_'):
