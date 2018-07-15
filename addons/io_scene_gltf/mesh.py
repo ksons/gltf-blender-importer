@@ -130,22 +130,33 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
                     uv = uvs[vert_idx]
                     uv_layer[loop_idx].uv = (uv[0], -uv[1])
 
-        # Assign joints by generating vertex groups
-        if kind.startswith('JOINTS_'):
-            # Don't seem to need to deal with all_attributes here.
-            # The only way I could find to set vertex groups was by
-            # round-tripping through a bmesh.
-            # TODO: find a better way?
-            joints = op.get('accessor', accessor_id)
-            weights = op.get('accessor', attributes['WEIGHTS_' + kind[len('JOINTS_'):]])
-            bme = bmesh.new()
-            bme.from_mesh(me)
-            layer = bme.verts.layers.deform.new(kind)
-            for vert, joint_vec, weight_vec in zip(bme.verts, joints, weights):
-                for joint, weight in zip(joint_vec, weight_vec):
-                    vert[layer][joint] = weight
-            bme.to_mesh(me)
-            bme.free()
+
+    # Assign joints/weights. We begin by collecting all the sets (multiple sets
+    # allow for >4 joint influences).
+    # TODO: multiple sets are untested!!
+    joint_sets = []
+    weight_sets = []
+    i = 0
+    while True:
+        if 'JOINTS_%d' % i in attributes and 'WEIGHTS_%d' % i in attributes:
+            joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % i]))
+            weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % i]))
+            i += 1
+        else:
+            break
+    if joint_sets:
+        # Now create vertex groups. The only way I could find to set vertex
+        # groups was by round-tripping through a bmesh.
+        # TODO: find a better way?
+        bme = bmesh.new()
+        bme.from_mesh(me)
+        layer = bme.verts.layers.deform.new('Vertex Weights')
+        for i, vert in enumerate(bme.verts):
+            for joint_set, weight_set in zip(joint_sets, weight_sets):
+                for j in range(0, 4):
+                    vert[layer][joint_set[i][j]] = weight_set[i][j]
+        bme.to_mesh(me)
+        bme.free()
 
 
     me.update()
