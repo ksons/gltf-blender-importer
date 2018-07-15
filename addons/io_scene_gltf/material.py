@@ -129,10 +129,15 @@ def create_material_from_properties(op, material, material_name, use_color0):
     def texture_node(name, props):
         texture = op.gltf['textures'][props['index']]
 
+        if 'MSFT_texture_dds' in props.get('extensions', {}):
+            image_id = texture['MSFT_texture_dds']['source']
+        else:
+            image_id = texture['source']
+
         tex = tree.nodes.new('ShaderNodeTexImage')
         tex.name = name
         tex.label = name
-        tex.image = op.get('image', texture['source'])
+        tex.image = op.get('image', image_id)
         tex.width = 216
 
         # Wire up any texcoord if necessary

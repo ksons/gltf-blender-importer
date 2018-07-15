@@ -27,6 +27,7 @@ GLTF_VERSION = (2, 0)
 EXTENSIONS = set((
     'KHR_materials_pbrSpecularGlossiness',
     'KHR_materials_unlit',
+    'MSFT_texture_dds',
 ))
 
 
