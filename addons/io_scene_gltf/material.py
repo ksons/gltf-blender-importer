@@ -146,8 +146,43 @@ def create_material_from_properties(op, material, material_name, use_color0):
                 texcoord_nodes[texcoord] = texcoord_node
             links.new(texcoord_nodes[texcoord].outputs[0], tex.inputs[0])
 
-        # TODO: set sampler properties... but I'm not sure the options on a
-        # Image Texture node are flexible enough for us :/
+        # Do the sampler properties
+        # TODO: these don't map very easily to a Blender Image Texture Node so
+        # there are lots of limitations :/
+
+        if 'sampler' in texture:
+            sampler = op.gltf['samplers'][texture['sampler']]
+        else:
+            sampler = {}
+
+        NEAREST = 9728
+        LINEAR = 9729
+        AUTO_FILTER = LINEAR # which one to use if unspecified
+        mag_filter = sampler.get('magFilter', AUTO_FILTER)
+        # Just ignore the min-filter for now; we can't set them separately and
+        # reporting when they differ is very noisy
+        if mag_filter == NEAREST:
+            tex.interpolation = 'Closest'
+        elif mag_filter == LINEAR:
+            tex.interpolation = 'Linear'
+        else:
+            print('unknown texture filter: %d' % mag_filter)
+
+        CLAMP_TO_EDGE = 33071
+        MIRRORED_REPEAT = 33648
+        REPEAT = 10497
+        wrap_s = sampler.get('wrapS', REPEAT)
+        wrap_t = sampler.get('wrapT', REPEAT)
+        if wrap_s != wrap_t:
+            print('unsupported: wrap-s and wrap-t cannot be different (using wrap-s)')
+        if wrap_s == CLAMP_TO_EDGE:
+            tex.extension = 'EXTEND'
+        elif wrap_s == MIRRORED_REPEAT:
+            print('unsupported: textures cannot mirrored-repeat')
+        elif wrap_s == REPEAT:
+            tex.extension = 'REPEAT'
+        else:
+            print('unknown wrap mode: %d' % wrap_s)
 
         return tex
 
