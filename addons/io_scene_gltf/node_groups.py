@@ -2,8 +2,9 @@ import json, os
 import bpy
 
 
-# Load the serialized group data.
-# Serialized data comes from KhronosGroup/glTF-Blender-Exporter/pbr_node/glTF2.blend.
+# Load the serialized group data. Serialized data comes from
+# KhronosGroup/glTF-Blender-Exporter/pbr_node/glTF2.blend, plus some
+# modifications.
 this_dir = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(this_dir, 'node_groups.json'), 'r') as f:
     f.readline() # throw away comment line
@@ -81,3 +82,24 @@ def create_group(op, name):
 
 
     return g
+
+
+# NOTE: Not part of the importer. When run as a script inside Blender, imports
+# all the serialized node groups. Can be used to edit the serialized groups by
+# running this in an empty file, editing, then running the serialize_node_groups
+# script. You'll have to set this_dir above manually though.
+if __name__ == '__main__':
+    # Implements *just* enough of ImportGLTF to get create_group to work :)
+    class ProxyOp:
+        def __init__(self):
+            self.node_groups = {}
+
+        def get(self, type, name):
+            assert(type == 'node_group')
+            if name not in self.node_groups:
+                self.node_groups[name] = create_group(self, name)
+            return self.node_groups[name]
+
+    op = ProxyOp()
+    for name in GROUP_DATA.keys():
+        create_group(op, name)

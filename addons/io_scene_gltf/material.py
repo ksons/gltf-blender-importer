@@ -68,19 +68,22 @@ def create_material_from_properties(op, material, material_name, use_color0):
     while tree.nodes:
         tree.nodes.remove(tree.nodes[0])
 
-    pbr_node = tree.nodes.new('ShaderNodeGroup')
-    pbr_node.location = 43, 68
-    pbr_node.width = 255
-    if 'KHR_materials_pbrSpecularGlossiness' in material.get('extensions', {}):
+    g = tree.nodes.new('ShaderNodeGroup')
+    g.location = 43, 68
+    g.width = 255
+    if 'KHR_materials_unlit' in material.get('extensions', {}):
+        pbr = material.get('pbrMetallicRoughness', {})
+        g.node_tree = op.get('node_group', 'glTF Unlit')
+    elif 'KHR_materials_pbrSpecularGlossiness' in material.get('extensions', {}):
         pbr = material['extensions']['KHR_materials_pbrSpecularGlossiness']
-        pbr_node.node_tree = op.get('node_group', 'glTF Specular Glossiness')
+        g.node_tree = op.get('node_group', 'glTF Specular Glossiness')
     else:
         pbr = material.get('pbrMetallicRoughness', {})
-        pbr_node.node_tree = op.get('node_group', 'glTF Metallic Roughness')
+        g.node_tree = op.get('node_group', 'glTF Metallic Roughness')
 
     mo = tree.nodes.new('ShaderNodeOutputMaterial')
     mo.location = 365, -25
-    links.new(pbr_node.outputs[0], mo.inputs[0])
+    links.new(g.outputs[0], mo.inputs[0])
 
 
     # Fill in all properties
@@ -97,27 +100,24 @@ def create_material_from_properties(op, material, material_name, use_color0):
         def mog_alpha(rgba): return rgba
 
     if alpha_mode == 'MASK':
-        pbr_node.inputs['AlphaMode'].default_value = 1.0
+        g.inputs['AlphaMode'].default_value = 1.0
 
 
-    if 'baseColorFactor' in pbr:
-        pbr_node.inputs['BaseColorFactor'].default_value = mog_alpha(pbr['baseColorFactor'])
-    if 'diffuseFactor' in pbr:
-        pbr_node.inputs['DiffuseFactor'].default_value = mog_alpha(pbr['diffuseFactor'])
-    if 'metallicFactor' in pbr:
-        pbr_node.inputs['MetallicFactor'].default_value = pbr['metallicFactor']
-    if 'roughnessFactor' in pbr:
-        pbr_node.inputs['RoughnessFactor'].default_value = pbr['roughnessFactor']
-    if 'specularFactor' in pbr:
-        pbr_node.inputs['SpecularFactor'].default_value = pbr['specularFactor'] + [1]
-    if 'glossinessFactor' in pbr:
-        pbr_node.inputs['GlossinessFactor'].default_value = pbr['glossinessFactor']
-    if 'emissiveFactor' in material:
-        pbr_node.inputs['EmissiveFactor'].default_value = material['emissiveFactor'] + [1]
-    if 'alphaCutoff' in material:
-        pbr_node.inputs['AlphaCutoff'].default_value = material['alphaCutoff']
-    if 'doubleSided' in material:
-        pbr_node.inputs['DoubleSided'].default_value = 1.0 if material['doubleSided'] else 0.0
+    def set_value(obj, key, input_name, mog=lambda x: x):
+        if key in obj and input_name in g.inputs:
+            g.inputs[input_name].default_value = mog(obj[key])
+
+    def rgb2rgba(rgb): return rgb + [1]
+
+    set_value(pbr, 'baseColorFactor', 'BaseColorFactor', mog=mog_alpha)
+    set_value(pbr, 'diffuseFactor', 'DiffuseFactor', mog=mog_alpha)
+    set_value(pbr, 'metallicFactor', 'MetallicFactor')
+    set_value(pbr, 'roughnessFactor', 'RoughnessFactor')
+    set_value(pbr, 'specularFactor', 'SpecularFactor', mog=rgb2rgba)
+    set_value(pbr, 'glossinessFactor', 'GlossinessFactor')
+    set_value(material, 'emissiveFactor', 'EmissiveFactor', mog=rgb2rgba)
+    set_value(material, 'alphaCutoff', 'AlphaCutoff')
+    set_value(material, 'doubleSided', 'DoubleSided', mog=int)
 
 
     # A cache of nodes for different texcoords (eg. TEXCOORD_1)
@@ -186,56 +186,57 @@ def create_material_from_properties(op, material, material_name, use_color0):
 
         return tex
 
-    if 'baseColorTexture' in pbr:
+    if 'baseColorTexture' in pbr and 'BaseColor' in g.inputs:
         tex = texture_node('Base Color Texture', pbr['baseColorTexture'])
         tex.location = -566, 240
         tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], pbr_node.inputs['BaseColor'])
+        links.new(tex.outputs[0], g.inputs['BaseColor'])
         if alpha_mode != 'OPAQUE':
-            links.new(tex.outputs[1], pbr_node.inputs['Alpha'])
+            links.new(tex.outputs[1], g.inputs['Alpha'])
 
-    if 'diffuseTexture' in pbr:
+    if 'diffuseTexture' in pbr and 'Diffuse' in g.inputs:
         tex = texture_node('Diffuse Texture', pbr['diffuseTexture'])
         tex.location = -566, 240
         tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], pbr_node.inputs['Diffuse'])
+        links.new(tex.outputs[0], g.inputs['Diffuse'])
         if alpha_mode != 'OPAQUE':
-            links.new(tex.outputs[1], pbr_node.inputs['Alpha'])
+            links.new(tex.outputs[1], g.inputs['Alpha'])
 
-    if 'metallicRoughnessTexture' in pbr:
+    if 'metallicRoughnessTexture' in pbr and 'MetallicRoughness' in g.inputs:
         tex = texture_node('Metallic Roughness Texture', pbr['metallicRoughnessTexture'])
         tex.location = -315, 240
         tex.color_space = 'NONE'
-        links.new(tex.outputs[0], pbr_node.inputs['MetallicRoughness'])
+        links.new(tex.outputs[0], g.inputs['MetallicRoughness'])
 
-    if 'specularGlossinessTexture' in pbr:
+    if 'specularGlossinessTexture' in pbr and 'Specular' in g.inputs:
         tex = texture_node('Specular Glossiness Texture', pbr['specularGlossinessTexture'])
         tex.location = -315, 240
         tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], pbr_node.inputs['Specular'])
-        links.new(tex.outputs[1], pbr_node.inputs['Glossiness'])
+        links.new(tex.outputs[0], g.inputs['Specular'])
+        links.new(tex.outputs[1], g.inputs['Glossiness'])
 
-    if 'normalTexture' in material:
+    if 'normalTexture' in material and 'Normal' in g.inputs:
         tex = texture_node('Normal Texture', material['normalTexture'])
         tex.location = -566, -37
         tex.color_space = 'NONE'
-        links.new(tex.outputs[0], pbr_node.inputs['Normal'])
+        links.new(tex.outputs[0], g.inputs['Normal'])
         if 'scale' in material['normalTexture']:
-            pbr_node.inputs['NormalScale'].default_value = material['normalTexture']['scale']
+            g.inputs['NormalScale'].default_value = material['normalTexture']['scale']
 
-    if 'occlusionTexture' in material:
+    if 'occlusionTexture' in material and 'Occlusion' in g.inputs:
         tex = texture_node('Occlusion Texture', material['occlusionTexture'])
         tex.location = -315, -37
         tex.color_space = 'NONE'
-        links.new(tex.outputs[0], pbr_node.inputs['Occlusion'])
+        links.new(tex.outputs[0], g.inputs['Occlusion'])
         if 'strength' in material['occlusionTexture']:
-            pbr_node.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
+            g.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
 
-    if 'emissiveTexture' in material:
+    if 'emissiveTexture' in material and 'Emissive' in g.inputs:
         tex = texture_node('Emissive Texture', material['emissiveTexture'])
         tex.location = -441, -311
         tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], pbr_node.inputs['Emissive'])
+        links.new(tex.outputs[0], g.inputs['Emissive'])
+
 
 
     if use_color0:
@@ -243,8 +244,8 @@ def create_material_from_properties(op, material, material_name, use_color0):
         node.name = 'Vertex Colors'
         node.location = -151, -384
         node.attribute_name = 'COLOR_0'
-        links.new(node.outputs[0], pbr_node.inputs['COLOR_0'])
-        pbr_node.inputs['Use COLOR_0'].default_value = 1.0
+        links.new(node.outputs[0], g.inputs['COLOR_0'])
+        g.inputs['Use COLOR_0'].default_value = 1.0
 
 
     return mat

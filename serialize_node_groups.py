@@ -3,7 +3,8 @@
 # purposes. Using rna2xml instead seems logical but I couldn't get it working.)
 #
 # This is used to generate node_groups.json which contains the node group data
-# for KhronosGroup/glTF-Blender-Exporter/pbr_node/glTF2.blend.
+# for KhronosGroup/glTF-Blender-Exporter/pbr_node/glTF2.blend, plus some
+# modifications.
 #
 # Instruction: You run this script from Blender. Open the glTF2.blend file, then
 # open this file in the text editor and hit 'Run Script'. The output is placed

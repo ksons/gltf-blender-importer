@@ -24,6 +24,7 @@ GLTF_VERSION = (2, 0)
 # Supported extensions
 EXTENSIONS = set((
     'KHR_materials_pbrSpecularGlossiness',
+    'KHR_materials_unlit',
 ))
 
 
