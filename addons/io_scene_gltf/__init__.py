@@ -8,12 +8,14 @@ from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
-    'author': 'Kristian Sons',
+    'author': 'Kristian Sons (ksons), scurest',
     'blender': (2, 79, 0),
-    'location': 'File > Import',
-    'description': '',
+    'version': (0, 3, 0),
+    'location': 'File > Import > glTF JSON (.gltf/.glb)',
+    'description': 'Importer for the glTF 2.0 file format.',
     'warning': '',
-    'wiki_url': '',
+    'wiki_url': 'https://github.com/ksons/gltf-blender-importer/blob/master/README.md',
+    'tracker_url': 'https://github.com/ksons/gltf-blender-importer/issues',
     'category': 'Import-Export'
 }
 
