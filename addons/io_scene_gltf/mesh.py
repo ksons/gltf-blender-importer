@@ -102,35 +102,38 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
             if layer == 'vertex_colors': me.vertex_colors.new(name)
             if layer == 'uv_layers': me.uv_textures.new(name)
 
-    for kind, accessor_id in attributes.items():
-        if kind == 'NORMAL':
-            normals = op.get('accessor', accessor_id)
-            for i, vertex in enumerate(me.vertices):
-                vertex.normal = convert_coordinates(normals[i])
+    if 'NORMAL' in attributes:
+        normals = op.get('accessor', attributes['NORMAL'])
+        for i, vertex in enumerate(me.vertices):
+            vertex.normal = convert_coordinates(normals[i])
 
-        if kind.startswith('COLOR_'):
-            if kind not in me.vertex_colors.keys():
-                me.vertex_colors.new(kind)
-            rgba_layer = me.vertex_colors[kind].data
-            colors = op.get('accessor', accessor_id)
-            if colors and len(colors[0]) == 3:
-                # rgb -> rgba
-                colors = [color+[1] for color in colors]
-            for polygon in me.polygons:
-                for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                    color = colors[vert_idx]
-                    rgba_layer[loop_idx].color = colors[vert_idx]
+    k = 0
+    while 'COLOR_%d' % k in attributes:
+        layer_name = 'COLOR_%d' % k
+        if layer_name not in me.vertex_colors.keys():
+            me.vertex_colors.new(layer_name)
+        rgba_layer = me.vertex_colors[layer_name].data
+        colors = op.get('accessor', attributes[layer_name])
+        if colors and len(colors[0]) == 3:
+            # rgb -> rgba
+            colors = [color+[1] for color in colors]
+        for polygon in me.polygons:
+            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
+                rgba_layer[loop_idx].color = colors[vert_idx]
+        k += 1
 
-        if kind.startswith('TEXCOORD_'):
-            if kind not in me.uv_layers.keys():
-                me.uv_textures.new(kind)
-
-            uvs = op.get('accessor', accessor_id)
-            uv_layer = me.uv_layers[kind].data
-            for polygon in me.polygons:
-                for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                    uv = uvs[vert_idx]
-                    uv_layer[loop_idx].uv = (uv[0], 1 - uv[1])
+    k = 0
+    while 'TEXCOORD_%d' % k in attributes:
+        layer_name = 'TEXCOORD_%d' % k
+        if layer_name not in me.uv_layers.keys():
+            me.uv_textures.new(layer_name)
+        uvs = op.get('accessor', attributes[layer_name])
+        uv_layer = me.uv_layers[layer_name].data
+        for polygon in me.polygons:
+            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
+                uv = uvs[vert_idx]
+                uv_layer[loop_idx].uv = (uv[0], 1 - uv[1])
+        k += 1
 
 
     # Assign joints/weights. We begin by collecting all the sets (multiple sets
@@ -138,14 +141,11 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
     # TODO: multiple sets are untested!!
     joint_sets = []
     weight_sets = []
-    i = 0
-    while True:
-        if 'JOINTS_%d' % i in attributes and 'WEIGHTS_%d' % i in attributes:
-            joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % i]))
-            weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % i]))
-            i += 1
-        else:
-            break
+    k = 0
+    while 'JOINTS_%d' % k in attributes and 'WEIGHTS_%d' % k in attributes:
+        joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % k]))
+        weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % k]))
+        k += 1
     if joint_sets:
         # Now create vertex groups. The only way I could find to set vertex
         # groups was by round-tripping through a bmesh.
