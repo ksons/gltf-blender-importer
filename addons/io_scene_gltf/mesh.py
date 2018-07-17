@@ -114,9 +114,16 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
             me.vertex_colors.new(layer_name)
         rgba_layer = me.vertex_colors[layer_name].data
         colors = op.get('accessor', attributes[layer_name])
-        if colors and len(colors[0]) == 3:
-            # rgb -> rgba
-            colors = [color+[1] for color in colors]
+
+        # Old Blender versions only take RGB and new ones only take RGBA
+        if bpy.app.version >= (2, 79, 4): # this bound is not necessarily tight
+            if colors and len(colors[0]) == 3:
+                colors = [color+[1] for color in colors]
+        else:
+            if colors and len(colors[0]) == 4:
+                print("your Blender version doesn't support RGBA vertex colors. Upgrade!")
+                colors = [color[:3] for color in colors]
+
         for polygon in me.polygons:
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
                 rgba_layer[loop_idx].color = colors[vert_idx]
