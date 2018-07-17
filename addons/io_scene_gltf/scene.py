@@ -165,9 +165,19 @@ def create_vforest(op):
         # We detect overlapping skins and bail in this pass.
         def mark_bones(vnode):
             if 'armature_vnode' in vnode:
+                # TODO: we can just merge the armatures...
                 raise Exception('unsupported: a node (ID=%d) belongs to two different skins' % vnode['gltf_id'])
             vnode['armature_vnode'] = armature
             vnode['type'] = 'BONE'
+
+            # Record any non-unit scale so we can report about it later (Blender
+            # bones appear to only allow unit scales)
+            if 'trs' in vnode:
+                t, r, s = vnode['trs']
+                if any(abs(sx - 1) > 0.01 for sx in s):
+                    vnode['had_nonunit_scale'] = True
+                vnode['trs'] = (t, r, Vector((1, 1, 1)))
+
             for child in vnode['children']:
                 mark_bones(child)
 
@@ -182,9 +192,6 @@ def create_vforest(op):
                 mat = parent_mat * trs_to_matrix(vnode['trs'])
             if vnode['type'] == 'BONE':
                 vnode['bone_matrix'] = mat
-                # Also compute the tail-head vector (this is used for when a
-                # mesh/camera is a child of a bone)
-                vnode['tail_to_head'] = mat * Vector((-1, 1, 0))
             for child in vnode['children']:
                 compute_bone_mats(child, Matrix(mat))
 
@@ -266,11 +273,10 @@ def realize_vforest(op):
                     ob.parent_type = 'BONE'
                     ob.parent_bone = vnode['parent']['blender_name']
 
-                    # We need to apply a translation so the object is at the
-                    # head of the bone, not the tail, like it normally is
-                    # TODO: this isn't the right one though -__-;;;
                     assert('trs' not in vnode)
-                    ob.location = vnode['parent']['tail_to_head']
+                    # We need to apply a translation so the object is at the
+                    # head of the bone, not the tail, like it normally is.
+                    # TODO!!!!!!!
 
 
         elif vnode['type'] == 'ARMATURE':
@@ -291,12 +297,28 @@ def realize_vforest(op):
             bone = armature.edit_bones.new(vnode['name'])
             bone.use_connect = False
 
+            # Chose a length for the bone. The best one is so that its tail
+            # meets the head of its (first) child, but fallback to the length of
+            # its parent (if no children), or 1 (if no parent).
+            bone_length = 1
+            if vnode['parent'] and 'bone_length' in vnode['parent']:
+                bone_length = vnode['parent']['bone_length']
+            for child in vnode['children']:
+                if child['type'] == 'BONE':
+                    child_head = child['bone_matrix'] * Vector((0, 0, 0))
+                    our_head = vnode['bone_matrix'] * Vector((0, 0, 0))
+                    dist = (our_head - child_head).length
+                    if dist != 0:
+                        bone_length = dist
+                    break
+            vnode['bone_length'] = bone_length # record it for our children
+
             bone.head = vnode['bone_matrix'] * Vector((0, 0, 0))
-            bone.tail = vnode['bone_matrix'] * Vector((0, 1, 0))
+            bone.tail = vnode['bone_matrix'] * Vector((0, bone_length, 0))
             bone.align_roll(vnode['bone_matrix'] * Vector((0, 0, 1)) - bone.head)
-            # TODO: detect and warn about non-uniform scalings here
 
             vnode['blender_editbone'] = bone
+
             # Remember the name because trying to access
             # vnode['blender_editbone'].name after we exit editmode brings down
             # the wrath of heaven.
@@ -350,6 +372,22 @@ def realize_vforest(op):
 
     for root in op.vnode_roots:
         create_vertex_groups(root)
+
+
+    # Finally, report about bones with non-unit scales
+    bones_that_had_nonunit_scales = [
+        vnode['blender_name']
+        for vnode in op.vnodes
+        if vnode.get('had_nonunit_scale', False)
+    ]
+    if bones_that_had_nonunit_scales:
+        print(
+            'warning: the following bones had non-unit scalings '
+            'which is not allowed: ',
+            *bones_that_had_nonunit_scales
+        )
+        print('all their rest scalings have been set to 1')
+
 
 
 

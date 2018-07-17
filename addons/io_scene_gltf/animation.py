@@ -43,15 +43,15 @@ def add_animation(op, anim_id):
 
     # Gather all the curves that affect a given node. node_curves will look like
     # {
-    #     node_id: {
-    #         'translation': (
-    #             [0.0, 0.1, 0.2, ...], # inputs
-    #             [[1.0, 0.0, 0.0], [1.2, 0.0, 0.0], ...], # outputs
-    #         )
+    #     for each affected node_id: {
+    #         'translation': {
+    #             'input': [0.0, 0.1, 0.2, ...], # time
+    #             'output': [[1, 0, 0], [2, 0, 0], ...], # translations
+    #             'interpolation': 'LINEAR'
+    #         },
     #         'rotation': ...,
-    #         ...
+    #         'scale': ...
     #     }
-    #     ...
     # }
     node_curves = {}
 
