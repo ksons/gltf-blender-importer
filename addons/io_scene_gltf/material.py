@@ -1,297 +1,319 @@
 import base64
 import os
 import tempfile
+import math
 
 import bpy
 from bpy_extras.image_utils import load_image
-
-# This is a hack as it is not possible to access a "normal" slot via name or
-# store it in a temporary variable
-NORMAL = 6
+from mathutils import Vector
 
 
-def do_with_temp_file(contents, func):
-    """Call func with the path to a temp file containing contents.
+def create_image(op, idx):
+    image = op.gltf['images'][idx]
 
-    The temp file will be deleted before this function returns.
-    """
-    path = None
-    try:
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        path = tmp.name
-        tmp.write(contents)
-        tmp.close()  # Have to close so func can open it
-        return func(path)
-    finally:
-        if path:
-            os.remove(path)
-
-
-def create_texture(op, idx, name, tree):
-    texture = op.gltf['textures'][idx]
-    source = op.gltf['images'][texture['source']]
-
-    tex_image = tree.nodes.new('ShaderNodeTexImage')
-
-    # Don't know how to load an image from memory, so if the data is
-    # in a buffer or data URI, we'll write it to a temp file and use
-    # this to load it from the temp file's path.
-    # Yes, this is kind of a hack :)
-    def load_from_temp(path):
-        tex_image.image = load_image(path)
-
-        # Need to pack the image into the .blend file or it will go
-        # away as soon as the temp file is deleted.
-        tex_image.image.pack()  # TODO: decide on tradeoff for using as_png
-
-    if 'uri' in source:
-        uri = source['uri']
+    img = None
+    if 'uri' in image:
+        uri = image['uri']
         is_data_uri = uri[:5] == 'data:'
         if is_data_uri:
             found_at = uri.find(';base64,')
             if found_at == -1:
-                print("Couldn't read data URI; not base64?")
+                print('error loading image: data URI not base64?')
+                return None
             else:
-                buf = base64.b64decode(uri[found_at + 8:])
-                do_with_temp_file(buf, load_from_temp)
+                buffer = base64.b64decode(uri[found_at + 8:])
         else:
+            # Load the image from disk
             image_location = os.path.join(op.base_path, uri)
-            tex_image.image = load_image(image_location)
-
-        tex_image.label = name
+            img = load_image(image_location)
     else:
-        buf, _stride = op.get_buffer_view(source['bufferView'])
-        do_with_temp_file(buf, load_from_temp)
+        buffer, _stride = op.get('buffer_view', image['bufferView'])
 
-    return tex_image
+    if not img:
+        # The image data is in buffer, but I don't know how to load an image
+        # from memory, we'll write it to a temp file and load it from there.
+        # Yes, this is a hack :)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # TODO: use the image's name, if it has one, for the file path; but
+            # we'll need to sanitize it in case it contains bad characters for a
+            # file name somehow
+            img_path = os.path.join(tmpdir, 'image_%d' % idx)
+            with open(img_path, 'wb') as f:
+                f.write(buffer)
+            img = load_image(img_path)
+            img.pack()  # TODO: should we use as_png?
 
-
-def create_pbr_group():
-    """Create a node group for metallic-roughness PBR."""
-
-    # XXX IDEA
-    # Use rna2xml to serialize the PBR group in KhronosGroup/glTF-Blender-Exporter
-    # and just import it here and get rid of this whole mess!
-
-    tree = bpy.data.node_groups.new('metallicRoughnessPBR', 'ShaderNodeTree')
-    inputs = tree.inputs
-    outputs = tree.outputs
-    links = tree.links
-
-    for n in tree.nodes:
-        tree.nodes.remove(n)
-
-    # Crap, I did this function in camelCase. Of course it's the one with
-    # a million variables. Stupid, stupid.
-    # TODO: make it snake_case
-
-    baseColorFacInp = inputs.new('NodeSocketColor', 'baseColorFactor')
-    baseColorTexInp = inputs.new('NodeSocketColor', 'baseColorTexture')
-    metFacInp = inputs.new('NodeSocketFloat', 'metallicFactor')
-    roughFacInp = inputs.new('NodeSocketFloat', 'roughnessFactor')
-    metRoughTexInp = inputs.new('NodeSocketColor', 'metallicRoughnessTexture')
-    vertColorInp = inputs.new('NodeSocketColor', 'Vertex Color')
-    inputs.new('NodeSocketNormal', 'Normal')
-
-    baseColorFacInp.default_value = (1, 1, 1, 1)
-    baseColorTexInp.default_value = (1, 1, 1, 1)
-    metFacInp.default_value = 1
-    roughFacInp.default_value = 1
-    metRoughTexInp.default_value = (1, 1, 1, 1)
-    vertColorInp.default_value = (1, 1, 1, 1)
-
-    outputs.new('NodeSocketShader', 'Output Shader')
-
-    inputNode = tree.nodes.new('NodeGroupInput')
-    inputNode.location = -962, 183
-    outputNode = tree.nodes.new('NodeGroupOutput')
-    outputNode.location = 610, 224
-
-    # Calculate output color (albedo)
-    multColorNode1 = tree.nodes.new('ShaderNodeMixRGB')
-    multColorNode1.location = -680, 466
-    multColorNode1.blend_type = 'MULTIPLY'
-    multColorNode1.inputs['Fac'].default_value = 1
-    links.new(inputNode.outputs['baseColorFactor'],
-              multColorNode1.inputs['Color1'])
-    links.new(inputNode.outputs['baseColorTexture'],
-              multColorNode1.inputs['Color2'])
-
-    multColorNode2 = tree.nodes.new('ShaderNodeMixRGB')
-    multColorNode2.location = -496, 466
-    multColorNode2.blend_type = 'MULTIPLY'
-    multColorNode2.inputs['Fac'].default_value = 1
-    links.new(inputNode.outputs['Vertex Color'],
-              multColorNode2.inputs['Color1'])
-    links.new(multColorNode1.outputs['Color'], multColorNode2.inputs['Color2'])
-    colorOutputLink = multColorNode2.outputs['Color']
-
-    # Calculate roughness and metalness
-    separator = tree.nodes.new('ShaderNodeSeparateRGB')
-    separator.location = -749, -130
-    links.new(
-        inputNode.outputs['metallicRoughnessTexture'], separator.inputs['Image'])
-
-    multRoughnessNode = tree.nodes.new('ShaderNodeMath')
-    multRoughnessNode.location = -476, -50
-    multRoughnessNode.operation = 'MULTIPLY'
-    links.new(separator.outputs['G'], multRoughnessNode.inputs[0])
-    links.new(inputNode.outputs['metallicFactor'], multRoughnessNode.inputs[1])
-    roughnessOutputLink = multRoughnessNode.outputs['Value']
-
-    multMetalnessNode = tree.nodes.new('ShaderNodeMath')
-    multMetalnessNode.location = -476, -227
-    multMetalnessNode.operation = 'MULTIPLY'
-    links.new(separator.outputs['B'], multMetalnessNode.inputs[0])
-    links.new(inputNode.outputs['roughnessFactor'],
-              multMetalnessNode.inputs[1])
-    metalnessOutputLink = multMetalnessNode.outputs['Value']
-
-    # First mix
-    mixNode1 = tree.nodes.new('ShaderNodeMixShader')
-    mixNode1.location = 226, 429
-
-    fresnelNode = tree.nodes.new('ShaderNodeFresnel')
-    fresnelNode.location = 14, 553
-    links.new(inputNode.outputs[NORMAL], fresnelNode.inputs[1])
-
-    diffuseNode = tree.nodes.new('ShaderNodeBsdfDiffuse')
-    diffuseNode.location = 14, 427
-    links.new(colorOutputLink, diffuseNode.inputs['Color'])
-    links.new(roughnessOutputLink, diffuseNode.inputs['Roughness'])
-    links.new(inputNode.outputs[NORMAL], diffuseNode.inputs['Normal'])
-
-    glossyNode = tree.nodes.new('ShaderNodeBsdfGlossy')
-    glossyNode.location = 14, 289
-    links.new(roughnessOutputLink, glossyNode.inputs['Roughness'])
-    links.new(inputNode.outputs[NORMAL], glossyNode.inputs['Normal'])
-
-    links.new(fresnelNode.outputs[0], mixNode1.inputs[0])
-    links.new(diffuseNode.outputs[0], mixNode1.inputs[1])
-    links.new(glossyNode.outputs[0], mixNode1.inputs[2])
-
-    # Second mix
-    mixNode2 = tree.nodes.new('ShaderNodeMixShader')
-    mixNode2.location = 406, 239
-
-    glossyNode2 = tree.nodes.new('ShaderNodeBsdfGlossy')
-    glossyNode2.location = 66, -114
-    links.new(colorOutputLink, glossyNode2.inputs['Color'])
-    links.new(roughnessOutputLink, glossyNode2.inputs['Roughness'])
-    links.new(inputNode.outputs[NORMAL], glossyNode2.inputs['Normal'])
-
-    links.new(metalnessOutputLink, mixNode2.inputs[0])
-    links.new(mixNode1.outputs[0], mixNode2.inputs[1])
-    links.new(glossyNode2.outputs[0], mixNode2.inputs[2])
-
-    links.new(mixNode2.outputs[0], outputNode.inputs[0])
-
-    return tree
-
-
-def get_pbr_group(op):
-    if not op.pbr_group:
-        op.pbr_group = create_pbr_group()
-    return op.pbr_group
+    return img
 
 
 def create_material(op, idx):
+    """Create a Blender material for the glTF materials[idx]. If idx is the
+    special value 'default_material', create a Blender material for the default
+    glTF material instead.
+    """
+    use_color0 = idx in op.materials_using_color0
+
+    if idx == 'default_material':
+        return create_material_from_properties(op, {}, 'gltf Default Material', use_color0)
+
     material = op.gltf['materials'][idx]
     material_name = material.get('name', 'materials[%d]' % idx)
-    return create_material_from_properties(op, material, material_name)
+    return create_material_from_properties(op, material, material_name, use_color0)
 
 
-def create_material_from_properties(op, material, material_name):
-    pbr_metallic_roughness = material.get('pbrMetallicRoughness', {})
-
+def create_material_from_properties(op, material, material_name, use_color0):
     mat = bpy.data.materials.new(material_name)
-    op.materials[material_name] = mat
     mat.use_nodes = True
     tree = mat.node_tree
     links = tree.links
 
-    for n in tree.nodes:
-        tree.nodes.remove(n)
+    while tree.nodes:
+        tree.nodes.remove(tree.nodes[0])
 
-    group = get_pbr_group(op)
-    group_node = tree.nodes.new('ShaderNodeGroup')
-    group_node.location = 43, 68
-    group_node.node_tree = group
+    g = tree.nodes.new('ShaderNodeGroup')
+    g.location = 43, 68
+    g.width = 255
+    if 'KHR_materials_unlit' in material.get('extensions', {}):
+        pbr = material.get('pbrMetallicRoughness', {})
+        g.node_tree = op.get('node_group', 'glTF Unlit')
+    elif 'KHR_materials_pbrSpecularGlossiness' in material.get('extensions', {}):
+        pbr = material['extensions']['KHR_materials_pbrSpecularGlossiness']
+        g.node_tree = op.get('node_group', 'glTF Specular Glossiness')
+    else:
+        pbr = material.get('pbrMetallicRoughness', {})
+        g.node_tree = op.get('node_group', 'glTF Metallic Roughness')
 
     mo = tree.nodes.new('ShaderNodeOutputMaterial')
-    mo.location = 420, -25
-    final_output = group_node.outputs[0]
+    mo.location = 365, -25
+    links.new(g.outputs[0], mo.inputs[0])
 
-    metalness = pbr_metallic_roughness.get('metallicFactor', 1)
-    roughness = pbr_metallic_roughness.get('roughnessFactor', 1)
-    base_color = pbr_metallic_roughness.get('baseColorFactor', [1, 1, 1, 1])
 
-    group_node.inputs['baseColorFactor'].default_value = base_color
-    group_node.inputs['metallicFactor'].default_value = metalness
-    group_node.inputs['roughnessFactor'].default_value = roughness
 
-    base_color_texture = None
-    # TODO texCoord property
-    if 'baseColorTexture' in pbr_metallic_roughness:
-        image_idx = pbr_metallic_roughness['baseColorTexture']['index']
-        base_color_texture = create_texture(
-            op, image_idx, 'baseColorTexture', tree)
-        base_color_texture.location = -580, 200
-        links.new(
-            base_color_texture.outputs['Color'], group_node.inputs['baseColorTexture'])
+    # Alpha mode affects many things...
+    alpha_mode = material.get('alphaMode', 'OPAQUE')
+    # mog_alpha modifies RGBA alpha values based on the alpha mode
+    if alpha_mode == 'OPAQUE':
+        def mog_alpha(rgba): return rgba[:3] + [1]
+    elif alpha_mode == 'BLEND' or alpha_mode == 'MASK':
+        def mog_alpha(rgba): return rgba
+    else:
+        print('unsupported alpha mode: %s' % alpha_mode)
+        def mog_alpha(rgba): return rgba
 
-    if 'metallicRoughnessTexture' in pbr_metallic_roughness:
-        image_idx = pbr_metallic_roughness['metallicRoughnessTexture']['index']
-        tex = create_texture(op, image_idx, 'metallicRoughnessTexture', tree)
-        tex.location = -580, -150
-        links.new(tex.outputs[0],
-                  group_node.inputs['metallicRoughnessTexture'])
+    if alpha_mode == 'MASK':
+        g.inputs['AlphaMode'].default_value = 1.0
 
-    if 'normalTexture' in material:
-        image_idx = material['normalTexture']['index']
-        tex = create_texture(op, image_idx, 'normalTexture', tree)
-        tex.location = -342, -366
+
+    def set_value(obj, key, input_name, mog=lambda x: x):
+        if key in obj and input_name in g.inputs:
+            g.inputs[input_name].default_value = mog(obj[key])
+
+    def rgb2rgba(rgb): return rgb + [1]
+
+    set_value(pbr, 'baseColorFactor', 'BaseColorFactor', mog=mog_alpha)
+    set_value(pbr, 'diffuseFactor', 'DiffuseFactor', mog=mog_alpha)
+    set_value(pbr, 'metallicFactor', 'MetallicFactor')
+    set_value(pbr, 'roughnessFactor', 'RoughnessFactor')
+    set_value(pbr, 'specularFactor', 'SpecularFactor', mog=rgb2rgba)
+    set_value(pbr, 'glossinessFactor', 'GlossinessFactor')
+    set_value(material, 'emissiveFactor', 'EmissiveFactor', mog=rgb2rgba)
+    set_value(material, 'alphaCutoff', 'AlphaCutoff')
+    set_value(material, 'doubleSided', 'DoubleSided', mog=int)
+
+
+    # A cache of nodes for different texcoords (eg. TEXCOORD_1)
+    texcoord_nodes = {}
+    # Where the put the next texcoord node
+    # HACK: this is inside of an array for stupid Python reasons
+    next_texcoord_node_y = [141]
+
+    def texture_node(name, props):
+        """Create a texture node from an textureInfo dict."""
+        texture = op.gltf['textures'][props['index']]
+
+        if 'MSFT_texture_dds' in props.get('extensions', {}):
+            image_id = texture['MSFT_texture_dds']['source']
+        else:
+            image_id = texture['source']
+
+        tex = tree.nodes.new('ShaderNodeTexImage')
+        tex.name = name
+        tex.label = name
+        tex.image = op.get('image', image_id)
+        tex.width = 216
+
+        texcoord = props.get('texCoord', 0)
+
+        # Handle any texture transform
+        # TODO: test this!!!
+        xform = None
+        if 'KHR_texture_transform' in texture.get('extensions', {}):
+            t = texture['extensions']['KHR_texture_transform']
+
+            texcoord = t.get('texCoord', texcoord)
+            offset = t.get('offset', [0, 0])
+            rotation = t.get('rotation', 0)
+            scale = t.get('scale', [1, 1])
+
+            # We need a coordinate change since we change (u,v)->(u,1-v) when we
+            # come into Blender. My calculation gave this but again it is NOT
+            # TESTED! It does fix the identity though, so that's promising :)
+            z = scale[1] * Vector((-math.sin(rotation), -math.cos(rotation)))
+            offset, rotation, scale = (
+                z + Vector((offset[0], 1 - offset[1])),
+                -rotation,
+                [scale[0], scale[1]],
+            )
+
+            xform = tree.nodes.new('ShaderNodeMapping')
+            xform.vector_type = 'VECTOR' # TODO: or 'TEXTURE'?
+            xform.translation[0] = offset[0]
+            xform.translation[1] = offset[1]
+            xform.rotation[2] = rotation
+            xform.scale[0] = scale[0]
+            xform.scale[1] = scale[1]
+            # TODO: put it in some good location
+
+        # Wire the texcoord into either the transform if it exists, or directly
+        # to the texture node
+        if texcoord != 0:
+            if texcoord not in texcoord_nodes:
+                texcoord_node = tree.nodes.new('ShaderNodeUVMap') # TODO: is this the right kind of node?
+                texcoord_node.uv_map = 'TEXCOORD_%d' % texcoord
+                texcoord_node.location = -812, next_texcoord_node_y[0]
+                next_texcoord_node_y[0] -= 120
+                texcoord_nodes[texcoord] = texcoord_node
+            if xform:
+                links.new(texcoord_nodes[texcoord].outputs[0], xform.inputs[0])
+                links.new(xform.outputs[0], tex.inputs[0])
+            else:
+                links.new(texcoord_nodes[texcoord].outputs[0], tex.inputs[0])
+
+
+        # Do the sampler properties
+        # TODO: these don't map very easily to a Blender Image Texture Node so
+        # there are lots of limitations :/
+
+        if 'sampler' in texture:
+            sampler = op.gltf['samplers'][texture['sampler']]
+        else:
+            sampler = {}
+
+        NEAREST = 9728
+        LINEAR = 9729
+        AUTO_FILTER = LINEAR # which one to use if unspecified
+        mag_filter = sampler.get('magFilter', AUTO_FILTER)
+        # Just ignore the min-filter for now; we can't set them separately and
+        # reporting when they differ is very noisy
+        if mag_filter == NEAREST:
+            tex.interpolation = 'Closest'
+        elif mag_filter == LINEAR:
+            tex.interpolation = 'Linear'
+        else:
+            print('unknown texture filter: %d' % mag_filter)
+
+        CLAMP_TO_EDGE = 33071
+        MIRRORED_REPEAT = 33648
+        REPEAT = 10497
+        wrap_s = sampler.get('wrapS', REPEAT)
+        wrap_t = sampler.get('wrapT', REPEAT)
+        if wrap_s != wrap_t:
+            print('unsupported: wrap-s and wrap-t cannot be different (using wrap-s)')
+        if wrap_s == CLAMP_TO_EDGE:
+            tex.extension = 'EXTEND'
+        elif wrap_s == MIRRORED_REPEAT:
+            print('unsupported: textures cannot mirrored-repeat')
+        elif wrap_s == REPEAT:
+            tex.extension = 'REPEAT'
+        else:
+            print('unknown wrap mode: %d' % wrap_s)
+
+        return tex
+
+    if 'baseColorTexture' in pbr and 'BaseColor' in g.inputs:
+        tex = texture_node('Base Color Texture', pbr['baseColorTexture'])
+        tex.location = -566, 240
+        tex.color_space = 'COLOR'
+        links.new(tex.outputs[0], g.inputs['BaseColor'])
+        if alpha_mode != 'OPAQUE':
+            links.new(tex.outputs[1], g.inputs['Alpha'])
+
+    if 'diffuseTexture' in pbr and 'Diffuse' in g.inputs:
+        tex = texture_node('Diffuse Texture', pbr['diffuseTexture'])
+        tex.location = -566, 240
+        tex.color_space = 'COLOR'
+        links.new(tex.outputs[0], g.inputs['Diffuse'])
+        if alpha_mode != 'OPAQUE':
+            links.new(tex.outputs[1], g.inputs['Alpha'])
+
+    if 'metallicRoughnessTexture' in pbr and 'MetallicRoughness' in g.inputs:
+        tex = texture_node('Metallic Roughness Texture', pbr['metallicRoughnessTexture'])
+        tex.location = -315, 240
         tex.color_space = 'NONE'
-        normal_map_node = tree.nodes.new('ShaderNodeNormalMap')
-        normal_map_node.location = -150, -170
-        links.new(tex.outputs['Color'], normal_map_node.inputs['Color'])
-        links.new(normal_map_node.outputs[0], group_node.inputs[NORMAL])
-        # TODO scale
+        links.new(tex.outputs[0], g.inputs['MetallicRoughness'])
 
-    if 'emissiveTexture' in material:
-        image_idx = material['emissiveTexture']['index']
-        tex = create_texture(op, image_idx, 'emissiveTexture', tree)
-        tex.location = 113, -291
-        emission_node = tree.nodes.new('ShaderNodeEmission')
-        emission_node.location = 284, -254
-        add_node = tree.nodes.new('ShaderNodeAddShader')
-        add_node.location = 357, -89
-        links.new(tex.outputs[0], emission_node.inputs[0])
-        links.new(final_output, add_node.inputs[0])
-        links.new(emission_node.outputs[0], add_node.inputs[1])
-        final_output = add_node.outputs[0]
-        mo.location = 547, -84
-    # TODO occlusion texture
+    if 'specularGlossinessTexture' in pbr and 'Specular' in g.inputs:
+        tex = texture_node('Specular Glossiness Texture', pbr['specularGlossinessTexture'])
+        tex.location = -315, 240
+        tex.color_space = 'COLOR'
+        links.new(tex.outputs[0], g.inputs['Specular'])
+        links.new(tex.outputs[1], g.inputs['Glossiness'])
 
-    alpha_mode = material.get("alphaMode", "OPAQUE")
-    if alpha_mode == "BLEND" and base_color_texture:
+    if 'normalTexture' in material and 'Normal' in g.inputs:
+        tex = texture_node('Normal Texture', material['normalTexture'])
+        tex.location = -566, -37
+        tex.color_space = 'NONE'
+        links.new(tex.outputs[0], g.inputs['Normal'])
+        if 'scale' in material['normalTexture']:
+            g.inputs['NormalScale'].default_value = material['normalTexture']['scale']
 
-        transparent_node = tree.nodes.new('ShaderNodeBsdfTransparent')
-        transparent_node.location = 43, -240
+    if 'occlusionTexture' in material and 'Occlusion' in g.inputs:
+        tex = texture_node('Occlusion Texture', material['occlusionTexture'])
+        tex.location = -315, -37
+        tex.color_space = 'NONE'
+        links.new(tex.outputs[0], g.inputs['Occlusion'])
+        if 'strength' in material['occlusionTexture']:
+            g.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
 
-        mix_node = tree.nodes.new('ShaderNodeMixShader')
-        mix_node.location = 250, -151
+    if 'emissiveTexture' in material and 'Emissive' in g.inputs:
+        tex = texture_node('Emissive Texture', material['emissiveTexture'])
+        tex.location = -441, -311
+        tex.color_space = 'COLOR'
+        links.new(tex.outputs[0], g.inputs['Emissive'])
 
-        links.new(base_color_texture.outputs['Alpha'], mix_node.inputs['Fac'])
-        links.new(transparent_node.outputs[0], mix_node.inputs[1])
-        links.new(final_output, mix_node.inputs[2])
 
-        final_output = mix_node.outputs[0]
 
-    links.new(final_output, mo.inputs[0])
+    if use_color0:
+        node = tree.nodes.new('ShaderNodeAttribute')
+        node.name = 'Vertex Colors'
+        node.location = -151, -384
+        node.attribute_name = 'COLOR_0'
+        links.new(node.outputs[0], g.inputs['COLOR_0'])
+        g.inputs['Use COLOR_0'].default_value = 1.0
+
 
     return mat
 
 
-def create_default_material(op):
-    return create_material_from_properties(op, {}, 'glTF Default Material')
+def compute_materials_using_color0(op):
+    """Compute which materials use vertex color COLOR_0.
+
+    I don't know how to have a material be influenced by vertex colors when a
+    mesh has them and not be when they aren't. If you slot in an attribute node
+    it will emit solid red when the attribute layer is missing (if it produced
+    solid white everything would be fine) and, of course, if you don't the
+    attribute won't influence the material.
+
+    Hence this work-around: we compute for each material whether it is ever used
+    in a primitive that uses vertex colors and mark it down. For these materials
+    only we slot in an attribute node for vertex colors. In mesh.py we also need
+    to make sure that any mesh that uses one of these materials has a COLOR_0
+    attribute.
+    """
+    op.materials_using_color0 = set()
+    for mesh in op.gltf.get('meshes', []):
+        primitives = mesh['primitives']
+        for primitive in mesh['primitives']:
+            if 'COLOR_0' in primitive['attributes']:
+                mat = primitive.get('material', 'default_material')
+                op.materials_using_color0.add(mat)

@@ -1,36 +1,43 @@
-import base64
-import os
-import struct
+import base64, os, struct
+
+# This file handles creating buffers, buffer views, and accessors. It's pure
+# python and doesn't depend on Blender at all.
+#
+# Buffers and buffer views are represented with memoryviews so we can do
+# efficient slicing.
 
 
 def create_buffer(op, idx):
+    """Create a memoryview for buffers[idx]."""
     buffer = op.gltf['buffers'][idx]
 
     # Handle GLB buffer
-    if op.glb_buffer and idx == 0 and 'uri' not in buffer:
+    if op.glb_buffer != None and idx == 0 and 'uri' not in buffer:
         return op.glb_buffer
 
     uri = buffer['uri']
 
     # Try to decode base64 data URIs
-    if uri[:5] == 'data:':
+    if uri.startswith('data:'):
         idx = uri.find(';base64,')
         if idx != -1:
-            base64_data = uri[idx+8:]
-            return base64.b64decode(base64_data)
+            base64_data = uri[idx + len(';base64,'):]
+            return memoryview(base64.b64decode(base64_data))
 
     # If we got here, assume it's a filepath
     buffer_location = os.path.join(op.base_path, uri)  # TODO: absolute paths?
-    print('Loading file', buffer_location)
     with open(buffer_location, 'rb') as fp:
-        bytes_read = fp.read()
-
-    return bytes_read
+        return memoryview(fp.read())
 
 
 def create_buffer_view(op, idx):
+    """Create a pair for bufferViews[idx].
+
+    The pair contains a memoryview for the view and also its stride, which is
+    specified in the bufferView as well.
+    """
     buffer_view = op.gltf['bufferViews'][idx]
-    buffer = op.get_buffer(buffer_view['buffer'])
+    buffer = op.get('buffer', buffer_view['buffer'])
     byte_offset = buffer_view.get('byteOffset', 0)
     byte_length = buffer_view['byteLength']
     stride = buffer_view.get('byteStride', None)
@@ -40,6 +47,11 @@ def create_buffer_view(op, idx):
 
 
 def create_accessor(op, idx):
+    """Create an array holding the elements of accessors[idx].
+
+    If the accessor is of SCALAR type, each element is a number. Otherwise, each
+    element is a tuple holding the components for that element.
+    """
     accessor = op.gltf['accessors'][idx]
     return create_accessor_from_properties(op, accessor)
 
@@ -101,23 +113,31 @@ def create_accessor_from_properties(op, accessor):
         normalize = normalize_lut[accessor['componentType']]
 
     if 'bufferView' in accessor:
-        (buf, stride) = op.get_buffer_view(accessor['bufferView'])
+        (buf, stride) = op.get('buffer_view', accessor['bufferView'])
         stride = stride or default_stride
     else:
         stride = default_stride
-        buf = [0] * (stride * count)
+        buf = b'\0' * (stride * count)
 
+
+    # Main decoding loop
     off = accessor.get('byteOffset', 0)
     result = []
-    while len(result) < count:
+    while len(result) != count:
         elem = struct.unpack_from(fmt, buf, offset=off)
-        if normalize:
-            elem = tuple([normalize(x) for x in elem])
-        if num_components == 1:
-            elem = elem[0]
         result.append(elem)
         off += stride
+    if normalize:
+        for i in range(0, count):
+            result[i] = tuple([normalize(x) for x in result[i]])
+    if num_components == 1:
+        for i in range(0, count):
+            result[i] = result[i][0]
 
+
+    # A sparse property says "change the elements at these indices to these
+    # values" where "these" are given in an accessor-like way, so we find the
+    # list of indices and values by recursing into this function.
     if 'sparse' in accessor:
         sparse = accessor['sparse']
         indices_props = {

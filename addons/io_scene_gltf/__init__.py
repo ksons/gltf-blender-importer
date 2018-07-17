@@ -1,17 +1,15 @@
-import json
-import os
-import struct
+import json, os, struct
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty, FloatProperty
 from bpy_extras.io_utils import ImportHelper
 
-from io_scene_gltf import animation, buffer, material, mesh, node, camera
+from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
     'author': 'Kristian Sons (ksons), scurest',
-    'blender': (2, 71, 0),
+    'blender': (2, 79, 0),
     'version': (0, 3, 0),
     'location': 'File > Import > glTF JSON (.gltf/.glb)',
     'description': 'Importer for the glTF 2.0 file format.',
@@ -24,8 +22,14 @@ bl_info = {
 
 # Supported glTF version
 GLTF_VERSION = (2, 0)
+
 # Supported extensions
-EXTENSIONS = set()
+EXTENSIONS = set((
+    'KHR_materials_pbrSpecularGlossiness',
+    'KHR_materials_unlit',
+    'KHR_texture_transform',
+    'MSFT_texture_dds',
+))
 
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
@@ -38,83 +42,75 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     )
 
-    def get_buffer(self, idx):
-        if idx not in self.buffers:
-            self.buffers[idx] = buffer.create_buffer(self, idx)
-        return self.buffers[idx]
+    import_under_current_scene = BoolProperty(
+        name='Import contents under current scene',
+        description=
+            'When enabled, all the objects will be placed in the current '
+            'scene and no scenes will be created.\n'
+            'When disabled, scenes will be created to match the ones in the '
+            'glTF file. Any object not in a scene will not be visible.',
+        default=True,
+    )
+    smooth_polys = BoolProperty(
+        name='Enable polygon smoothing',
+        description=
+            'Enable smoothing for all polygons in imported meshes. Suggest '
+            'disabling for low-res models.',
+        default=True,
+    )
+    import_animations = BoolProperty(
+        name='Import Animations (EXPERIMENTAL)',
+        description='',
+        default=False,
+    )
+    framerate = FloatProperty(
+        name='Frames/second',
+        description=
+            'Used for animation. The Blender frame corresponding to the glTF '
+            'time t is computed as framerate * t.',
+        default=60.0,
+    )
 
-    def get_buffer_view(self, idx):
-        if idx not in self.buffer_views:
-            self.buffer_views[idx] = buffer.create_buffer_view(self, idx)
-        return self.buffer_views[idx]
+    def execute(self, context):
+        self.caches = {}
 
-    def get_accessor(self, idx):
-        if idx not in self.accessors:
-            self.accessors[idx] = buffer.create_accessor(self, idx)
-        return self.accessors[idx]
+        self.load_config()
+        self.load()
+        self.check_version()
+        self.check_required_extensions()
 
-    def get_material(self, idx):
-        if idx not in self.materials:
-            self.materials[idx] = material.create_material(self, idx)
-        return self.materials[idx]
+        material.compute_materials_using_color0(self)
+        scene.create_scenes(self)
+        if self.import_animations:
+            animation.add_animations(self)
 
-    def get_default_material(self):
-        if not self.default_material:
-            self.default_material = material.create_default_material(self)
-        return self.default_material
+        return {'FINISHED'}
 
-    def get_mesh(self, idx):
-        if idx not in self.meshes:
-            self.meshes[idx] = mesh.create_mesh(self, idx)
-        return self.meshes[idx]
+    def draw(self, context):
+        layout = self.layout
 
-    def get_camera(self, idx):
-        if idx not in self.cameras:
-            self.cameras[idx] = camera.create_camera(self, idx)
-        return self.cameras[idx]
+        layout.prop(self, 'import_under_current_scene')
 
-    def generate_actions(self):
-        if 'animations' in self.gltf:
-            for idx in range(0, len(self.gltf['animations'])):
-                animation.create_action(self, idx)
+        col = layout.box().column()
+        col.label('Mesh:', icon='MESH_DATA')
+        col.prop(self, 'smooth_polys')
 
-    def check_version(self):
-        def str_to_version(s):
-            try:
-                version = tuple(int(x) for x in s.split('.'))
-                if len(version) >= 2:
-                    return version
-            except Exception:
-                pass
+        col = layout.box().column()
+        col.label('Animation:', icon='OUTLINER_DATA_POSE')
+        col.prop(self, 'import_animations')
+        col.prop(self, 'framerate')
 
-            raise Exception('unknown version format: %s' % s)
 
-        asset = self.gltf['asset']
-
-        if 'minVersion' in asset:
-            min_version = str_to_version(asset['minVersion'])
-            supported = GLTF_VERSION >= min_version
-            if not supported:
-                raise Exception('unsupported minimum version: %s' % min_version)
-        else:
-            version = str_to_version(asset['version'])
-            # Check only major version; we should be backwards- and forwards-compatible
-            supported = version[0] == GLTF_VERSION[0]
-            if not supported:
-                raise Exception('unsupported version: %s' % version)
-
-    def check_required_extensions(self):
-        # TODO: the below works but it will make the tests fails.
-        # Can be uncommented when KhronosGroup/glTF-Sample-Models#144
-        # is closed OR we implement pbrSpecularGlossiness.
-        pass
-
-        # for ext in self.gltf.get('extensionsRequired', []):
-        #    if ext not in EXTENSIONS:
-        #        raise Exception('unsupported extension was required: %s' % ext)
+    def get(self, type, id):
+        cache = self.caches.setdefault(type, {})
+        if id not in cache:
+            cache[id] = CREATE_FNS[type](self, id)
+        return cache[id]
 
     def load(self):
         filename = self.filepath
+
+        # Remember this for resolving relative paths
         self.base_path = os.path.dirname(filename)
 
         with open(filename, 'rb') as f:
@@ -122,13 +118,16 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         # Use magic number to detect GLB files.
         is_glb = contents[:4] == b'glTF'
-
         if is_glb:
             self.parse_glb(contents)
         else:
             self.gltf = json.loads(contents.decode('utf-8'))
+            self.glb_buffer = None
 
     def parse_glb(self, contents):
+        contents = memoryview(contents)
+
+        # Parse the header
         header = struct.unpack_from('<4sII', contents)
         glb_version = header[1]
         if glb_version != 2:
@@ -140,17 +139,26 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             ty = header[1]
             data = contents[offset + 8: offset + 8 + data_len]
             next_offset = offset + 8 + data_len
-            return {'type': ty, 'data': data, 'next_offset': next_offset}
+            return {
+                'type': ty,
+                'data': data,
+                'next_offset': next_offset,
+            }
 
         offset = 12  # end of header
 
+        # The first chunk must be JSON
         json_chunk = parse_chunk(offset)
         if json_chunk['type'] != b'JSON':
             raise Exception('GLB: JSON chunk must be first')
-        self.gltf = json.loads(json_chunk['data'].decode('utf-8'))
+        self.gltf = json.loads(
+            json_chunk['data'].tobytes(),
+            encoding='utf-8'
+        )
+
+        self.glb_buffer = None
 
         offset = json_chunk['next_offset']
-
         while offset < len(contents):
             chunk = parse_chunk(offset)
 
@@ -162,44 +170,63 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             if chunk['type'] == b'JSON':
                 raise Exception('GLB: Too many JSON chunks, should be 1')
 
-            if self.glb_buffer:
+            if self.glb_buffer != None:
                 raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
 
             self.glb_buffer = chunk['data']
 
             offset = chunk['next_offset']
 
-    def execute(self, context):
-        self.glb_buffer = None
-        self.buffers = {}
-        self.buffer_views = {}
-        self.accessors = {}
-        self.cameras = {}
-        self.default_material = None
-        self.pbr_group = None
-        self.materials = {}
-        self.meshes = {}
-        self.scenes = {}
-        # Indices of the root nodes
-        self.root_idxs = []
-        # Maps the index of a root node to the objects in that tree
-        self.root_to_objects = {}
-        # Maps a node index to the corresponding bone's name
-        self.node_to_bone_name = {}
+    def check_version(self):
+        def parse_version(s):
+            """Parse a string like '1.1' to a tuple (1,1)."""
+            try:
+                version = tuple(int(x) for x in s.split('.'))
+                if len(version) >= 2: return version
+            except Exception:
+                pass
+            raise Exception('unknown version format: %s' % s)
 
-        self.load()
+        asset = self.gltf['asset']
 
-        self.check_version()
-        self.check_required_extensions()
+        if 'minVersion' in asset:
+            min_version = parse_version(asset['minVersion'])
+            supported = GLTF_VERSION >= min_version
+            if not supported:
+                raise Exception('unsupported minimum version: %s' % min_version)
+        else:
+            version = parse_version(asset['version'])
+            # Check only major version; we should be backwards- and forwards-compatible
+            supported = version[0] == GLTF_VERSION[0]
+            if not supported:
+                raise Exception('unsupported version: %s' % version)
 
-        node.create_hierarchy(self)
-        self.generate_actions()
+    def check_required_extensions(self):
+        for ext in self.gltf.get('extensionsRequired', []):
+            if ext not in EXTENSIONS:
+                raise Exception('unsupported extension was required: %s' % ext)
 
-        if 'scene' in self.gltf and bpy.context.screen:
-            bpy.context.screen.scene = self.scenes[self.gltf['scene']]
 
-        return {'FINISHED'}
+    def load_config(self):
+        """Load user-supplied options into instance vars."""
+        keywords = self.as_keywords()
+        self.import_under_current_scene = keywords['import_under_current_scene']
+        self.smooth_polys = keywords['smooth_polys']
+        self.import_animations = keywords['import_animations']
+        self.framerate = keywords['framerate']
 
+
+
+CREATE_FNS = {
+    'buffer': buffer.create_buffer,
+    'buffer_view': buffer.create_buffer_view,
+    'accessor': buffer.create_accessor,
+    'image': material.create_image,
+    'material': material.create_material,
+    'node_group': node_groups.create_group,
+    'mesh': mesh.create_mesh,
+    'camera': camera.create_camera,
+}
 
 # Add to a menu
 def menu_func_import(self, context):
