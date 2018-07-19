@@ -152,7 +152,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         if json_chunk['type'] != b'JSON':
             raise Exception('GLB: JSON chunk must be first')
         self.gltf = json.loads(
-            json_chunk['data'].tobytes(),
+            json_chunk['data'].tobytes().decode('utf-8'),  # Need to decode for < 2.79.4 which comes with Python 3.5
             encoding='utf-8'
         )
 
