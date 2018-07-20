@@ -18,11 +18,10 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
     if 'POSITION' not in attributes:
         return me
 
-    verts = op.get('accessor', attributes['POSITION'])
-    verts = [convert_coordinates(v) for v in verts]
+    positions = op.get('accessor', attributes['POSITION'])
+
     edges = []
     faces = []
-
 
     # Generate the topology
 
@@ -31,7 +30,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
     if 'indices' in primitive:
         indices = op.get('accessor', primitive['indices'])
     else:
-        indices = range(0, len(verts))
+        indices = range(0, len(positions))
 
     # TODO: only mode TRIANGLES is tested!!
     if mode == 0:
@@ -86,7 +85,34 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
     else:
         raise Exception('primitive mode unimplemented: %d' % mode)
 
-    me.from_pydata(verts, edges, faces)
+
+    # Not all the vertices in the accessor are necessarily used. Only those that
+    # the indices reference actually become part of the mesh. So we'll need to
+    # drop the unused ones and consequently relabel the vertices and indices.
+
+    used_vert_idxs = set(indices)
+    # If i is the blender vertex index, bl2gltf[i] is the glTF vertex index
+    # Don't forget to use this when you pick an attribute to assign to certain
+    # Blender vertex!
+    bl2gltf = [i for i, p in enumerate(positions) if i in used_vert_idxs]
+    # If i the glTF vertex index, bl2gltf[i] is the Blender index (or -1 if that
+    # vertex is not used)
+    gltf2bl = [-1] * len(positions)
+    for bl_idx, gltf_idx in enumerate(bl2gltf):
+        gltf2bl[gltf_idx] = bl_idx
+
+    # Put the positions in their Blender order (and convert coordinates while
+    # we're at it)
+    positions = [
+        convert_coordinates(p)
+        for i, p in enumerate(positions) if i in used_vert_idxs
+    ]
+
+    # Put the topology in terms of Blender idxs
+    edges = [tuple(gltf2bl[x] for x in y) for y in edges]
+    faces = [tuple(gltf2bl[x] for x in y) for y in faces]
+
+    me.from_pydata(positions, edges, faces)
     me.validate()
 
 
@@ -105,7 +131,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
     if 'NORMAL' in attributes:
         normals = op.get('accessor', attributes['NORMAL'])
         for i, vertex in enumerate(me.vertices):
-            vertex.normal = convert_coordinates(normals[i])
+            vertex.normal = convert_coordinates(normals[bl2gltf[i]])
 
     k = 0
     while 'COLOR_%d' % k in attributes:
@@ -126,7 +152,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
 
         for polygon in me.polygons:
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                rgba_layer[loop_idx].color = colors[vert_idx]
+                rgba_layer[loop_idx].color = colors[bl2gltf[vert_idx]]
         k += 1
 
     k = 0
@@ -138,7 +164,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         uv_layer = me.uv_layers[layer_name].data
         for polygon in me.polygons:
             for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                uv = uvs[vert_idx]
+                uv = uvs[bl2gltf[vert_idx]]
                 uv_layer[loop_idx].uv = (uv[0], 1 - uv[1])
         k += 1
 
@@ -164,7 +190,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
             for joint_set, weight_set in zip(joint_sets, weight_sets):
                 for j in range(0, 4):
                     if weight_set[i][j] != 0:
-                        vert[layer][joint_set[i][j]] = weight_set[i][j]
+                        vert[layer][joint_set[bl2gltf[i]][j]] = weight_set[bl2gltf[i]][j]
         bme.to_mesh(me)
         bme.free()
 
