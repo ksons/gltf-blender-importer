@@ -66,15 +66,17 @@ def add_animation(op, anim_id):
         input = op.get('accessor', sampler['input'])
         output = op.get('accessor', sampler['output'])
         interpolation = sampler.get('interpolation', 'LINEAR')
+
         if interpolation not in ['LINEAR', 'STEP', 'CUBICSPLINE']:
             print('unknown interpolation: %s', interpolation)
-            continue
-
+            interpolation = 'LINEAR'
         if interpolation == 'CUBICSPLINE':
             # TODO: not supported; for now drop the tangents and switch to LINEAR
             # TODO: this work-around is also UNTESTED :)
             output = [output[i] for i in range(1, len(output, 3))]
             interpolation = 'LINEAR'
+        if interpolation == 'STEP':
+            interpolation = 'CONSTANT'
 
         node_curves.setdefault(node_id, {})[path] = {
             'input': input,
@@ -142,6 +144,7 @@ def add_action(op, animation_id, node_id, curves):
                 frame = t * op.framerate
                 y = convert(y)
                 for i, fcurve in enumerate(fcurves):
+                    fcurve.keyframe_points[k].interpolation = curve['interpolation']
                     fcurve.keyframe_points[k].co = [frame, y[i]]
 
             for fcurve in fcurves:
@@ -229,18 +232,17 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
             ordinates = pose_ordinates[target]
 
             fcurves = [
-                action.fcurves.new(data_path=base_path + data_path, index=i)
+                action.fcurves.new(data_path=base_path + '.' + data_path, index=i)
                 for i in range(0, num_components)
             ]
 
             for fcurve in fcurves:
                 fcurve.keyframe_points.add(len(curve['input']))
 
-            # TODO: set interpolation
-
             for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
                 for i, fcurve in enumerate(fcurves):
+                    fcurve.keyframe_points[k].interpolation = curve['interpolation']
                     fcurve.keyframe_points[k].co = [frame, y[i]]
 
             for fcurve in fcurves:
