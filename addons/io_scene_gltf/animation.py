@@ -171,7 +171,7 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     action = action_cache[anim_id]
 
 
-    rest_trs = bone_vnode['trs']
+
 
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be
@@ -185,8 +185,6 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     #    pose_trs = sample_blender_fcurve()
     #    final_trs = rest_trs * pose_trs
     #
-    # (TODO: is that order of multiplication correct?)
-    #
     # So we need to compute a value for pose_trs that gives the specified final
     # position.
     #
@@ -196,6 +194,17 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     #             = (rr^{-1} (-rt)) rr^{-1} ft fr fs
     #             = (rr^{-1} (-rt + ft)) rr^{-1} fr fs
     #             = (        pt        ) (   pr   ) ps
+    #
+    #
+    # To this is added the consideration that we allow the user to choose a
+    # rotation for bones (to allow them to get them to point in the "natural"
+    # way for Blender), hence both the rest_trs and the final_trs and
+    # premultiplied by the bone rotation, q. (TODO: check this paragraph??)
+
+    t, r, s = bone_vnode['trs']
+    q = op.bone_rotation.to_quaternion()
+    r = r * q
+    rest_trs = (t, r, s)
 
     # Here we only compute the ordinates of the new pose curves. The time
     # domains are the same as for the final curves.
@@ -209,10 +218,12 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
         ]
     if 'rotation' in curves:
         pose_ordinates['rotation'] = [
-            inverse_rest_rot * convert_rotation(fr)
+            inverse_rest_rot * convert_rotation(fr) * q
             for fr in curves['rotation']['output']
         ]
     if 'scale' in curves:
+        # TODO: we probably need some correction when the scaling is non-uniform
+        # and q is not 1
         pose_ordinates['scale'] = [
             convert_scale(fs) for fs in curves['scale']['output']
         ]

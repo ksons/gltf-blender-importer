@@ -242,6 +242,8 @@ def create_vforest(op):
 def realize_vforest(op):
     """Create actual Blender nodes for the vnodes."""
 
+    bone_rotate_mat = op.bone_rotation.to_matrix().to_4x4()
+
     def realize_vnode(vnode):
         if vnode['type'] == 'NORMAL':
             data = None
@@ -277,6 +279,7 @@ def realize_vforest(op):
                     # We need to apply a translation so the object is at the
                     # head of the bone, not the tail, like it normally is.
                     # TODO!!!!!!!
+                    # NOTE: will probably involve the bone_rotation too.
 
 
         elif vnode['type'] == 'ARMATURE':
@@ -314,8 +317,10 @@ def realize_vforest(op):
             vnode['bone_length'] = bone_length # record it for our children
 
             bone.head = vnode['bone_matrix'] * Vector((0, 0, 0))
-            bone.tail = vnode['bone_matrix'] * Vector((0, bone_length, 0))
-            bone.align_roll(vnode['bone_matrix'] * Vector((0, 0, 1)) - bone.head)
+            forward = bone_rotate_mat * Vector((0, bone_length, 0))
+            side = bone_rotate_mat * Vector((0, 0, 1))
+            bone.tail = vnode['bone_matrix'] * forward
+            bone.align_roll(vnode['bone_matrix'] * side - bone.head)
 
             vnode['blender_editbone'] = bone
 
