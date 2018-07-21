@@ -41,9 +41,8 @@ from mathutils import Matrix, Quaternion, Vector
 #                                         bone -> 3   4 <- bone
 #
 #    Note that nodes all the child nodes of the skin's skeleton node become
-#    bones regardless of whether they're joints in the skin. Also note that this
-#    imposes the following limitation on the glTF files we can handle: skins
-#    must not overlap.
+#    bones regardless of whether they're joints in the skin. If two armatures
+#    would overlap, only the ones that is "higher up" is kept.
 #
 #    Because of this, a glTF that is a root may not correspond to a vnode that
 #    is a root (because a dummy Armature might have been inserted above it).
@@ -113,7 +112,6 @@ def create_vforest(op):
             'name': node.get('name', 'nodes[%d]' % id),
             'parent': None,
             'children': [],
-            'skeleton_root': None,
             'type': 'NORMAL',
             'trs': get_trs(node),
         }
@@ -131,14 +129,18 @@ def create_vforest(op):
 
 
     # Insert armatures for the skins between the root of the skin and their
-    # parent (if any) and mark bone nodes.
+    # parent (if any).
     skins = op.gltf.get('skins', [])
     for skin_id, skin in enumerate(skins):
 
         if 'skeleton' not in skin:
-            raise Exception('unimplemented: skin missing skeleton attribute')
-        skeleton_root_id = skin['skeleton']
-        skeleton_root = id_to_vnode[skeleton_root_id]
+            # Find the root of the tree that contains the joints (presumably
+            # they must all be in the same tree)
+            vnode = id_to_vnode[skin['joints'][0]]
+            while vnode['parent']: vnode = vnode['parent']
+            skeleton_root = vnode
+        else:
+            skeleton_root = id_to_vnode[skin['skeleton']]
 
         def insert_parent(vnode, parent):
             old_parent = vnode['parent']
@@ -161,13 +163,23 @@ def create_vforest(op):
         vnodes.append(armature)
         insert_parent(skeleton_root, armature)
 
-        # Mark all the children of the armature as bones.
-        # We detect overlapping skins and bail in this pass.
-        def mark_bones(vnode):
-            if 'armature_vnode' in vnode:
-                # TODO: we can just merge the armatures...
-                raise Exception('unsupported: a node (ID=%d) belongs to two different skins' % vnode['gltf_id'])
-            vnode['armature_vnode'] = armature
+
+    # Mark all the children of armatures as bones and delete any armatures that
+    # are the descendants of other armatures.
+
+    def delete_vnode(vnode):
+        if vnode['parent']:
+            children = vnode['parent']['children']
+            del children[children.index(vnode)]
+        for child in vnode['children']:
+            child.parent = vnode['parent']
+        del vnodes[vnodes.index(vnode)]
+
+    def process_bone(vnode, armature_vnode):
+        if vnode['type'] == 'ARMATURE':
+            delete_vnode(vnode)
+        else:
+            vnode['armature_vnode'] = armature_vnode
             vnode['type'] = 'BONE'
 
             # Record any non-unit scale so we can report about it later (Blender
@@ -178,24 +190,24 @@ def create_vforest(op):
                     vnode['had_nonunit_scale'] = True
                 vnode['trs'] = (t, r, Vector((1, 1, 1)))
 
-            for child in vnode['children']:
-                mark_bones(child)
-
-        mark_bones(skeleton_root)
-
-        # A curious fact is that bone positions in Blender are not specified
-        # relative to their parent but relative to the containing armature. We
-        # compute the matrix relative to the armature for each bone now.
-        def compute_bone_mats(vnode, parent_mat=Matrix.Identity(4)):
-            mat = parent_mat
+            # A curious fact is that bone positions in Blender are not specified
+            # relative to their parent but relative to the containing armature.
+            # We compute the matrix relative to the armature for each bone here.
+            if vnode['parent'] and vnode['parent']['type'] == 'BONE':
+                mat = vnode['parent']['bone_matrix']
+            else:
+                mat = Matrix.Identity(4)
             if 'trs' in vnode:
-                mat = parent_mat * trs_to_matrix(vnode['trs'])
-            if vnode['type'] == 'BONE':
-                vnode['bone_matrix'] = mat
-            for child in vnode['children']:
-                compute_bone_mats(child, Matrix(mat))
+                mat = mat * trs_to_matrix(vnode['trs'])
+            vnode['bone_matrix'] = mat
 
-        compute_bone_mats(armature)
+        for child in vnode['children']:
+            process_bone(child, armature_vnode)
+
+    armatures_vnodes = [vnode for vnode in vnodes if vnode['type'] == 'ARMATURE']
+    for armature_vnode in armatures_vnodes:
+        for child in armature_vnode['children']:
+            process_bone(child, armature_vnode)
 
 
     # Register the meshes/cameras
@@ -384,6 +396,8 @@ def realize_vforest(op):
             mod.object = op.id_to_vnode[skin['skeleton']]['armature_vnode']['blender_object']
             mod.use_vertex_groups = True
 
+        # TODO: Don't we also need to do something about the skeleton root?
+
         for child in vnode['children']:
             create_vertex_groups(child)
 
@@ -446,6 +460,7 @@ def get_trs(node):
     return (Vector(loc), Quaternion(rot), Vector(sca))
 
 
+
 def link_tree(scene, vnode):
     """Link all the Blender objects under vnode into the given Blender scene."""
     if 'blender_object' in vnode:
@@ -480,12 +495,9 @@ def link_forest_into_scenes(op):
 
                 # A root glTF node isn't necessarily a root vnode.
                 # Find the real root.
-                def find_root(vnode):
-                    if vnode['parent'] == None: return vnode
-                    return find_root(vnode['parent'])
-                root_vnode = find_root(vnode)
+                while vnode['parent']: vnode = vnode['parent']
 
-                link_tree(blender_scene, root_vnode)
+                link_tree(blender_scene, vnode)
 
                 # Select this scene if it is the default
                 if i == default_scene_id:
