@@ -244,6 +244,10 @@ def realize_vforest(op):
 
     bone_rotate_mat = op.bone_rotation.to_matrix().to_4x4()
 
+    any_objects_child_of_bone = [False] # detect this case so we can warn later
+    # HACK: the usual wrap-it-in-an-array hack so it can be written to by an
+    # inner function
+
     def realize_vnode(vnode):
         if vnode['type'] == 'NORMAL':
             data = None
@@ -251,6 +255,14 @@ def realize_vforest(op):
                 data = op.get('mesh', vnode['mesh_id'])
             elif 'camera_id' in vnode:
                 data = op.get('camera', vnode['camera_id'])
+
+            name = vnode['name']
+
+            if vnode['parent'] and vnode['parent']['type'] == 'BONE':
+                # We currently don't put this kind of object in the correct place
+                # See TODO below. Mark its name so the user can tell.
+                any_objects_child_of_bone[0] = True
+                name = '[!!] ' + name
 
             ob = bpy.data.objects.new(vnode['name'], data)
             vnode['blender_object'] = ob
@@ -313,7 +325,7 @@ def realize_vforest(op):
                     dist = (our_head - child_head).length
                     if dist != 0:
                         bone_length = dist
-                    break
+                        break
             vnode['bone_length'] = bone_length # record it for our children
 
             bone.head = vnode['bone_matrix'] * Vector((0, 0, 0))
@@ -379,7 +391,14 @@ def realize_vforest(op):
         create_vertex_groups(root)
 
 
-    # Finally, report about bones with non-unit scales
+    # Report any warnings
+
+    if any_objects_child_of_bone[0]:
+        print(
+            'Some objects (marked with [!!]) are almost surely in the wrong '
+            'position. This is a known issue.'
+        )
+
     bones_that_had_nonunit_scales = [
         vnode['blender_name']
         for vnode in op.vnodes
@@ -387,11 +406,11 @@ def realize_vforest(op):
     ]
     if bones_that_had_nonunit_scales:
         print(
-            'warning: the following bones had non-unit scalings '
+            'Warning: the following bones had non-unit scalings '
             'which is not allowed: ',
             *bones_that_had_nonunit_scales
         )
-        print('all their rest scalings have been set to 1')
+        print('All their rest scalings have been set to 1.')
 
 
 
