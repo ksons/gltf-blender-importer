@@ -178,7 +178,6 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
 
 
 
-
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be
     #

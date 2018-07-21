@@ -23,6 +23,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
     edges = []
     faces = []
 
+
     # Generate the topology
 
     mode = primitive.get('mode', 4)
@@ -84,7 +85,6 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         ]
     else:
         raise Exception('primitive mode unimplemented: %d' % mode)
-
 
     # Not all the vertices in the accessor are necessarily used. Only those that
     # the indices reference actually become part of the mesh. So we'll need to

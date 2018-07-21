@@ -460,7 +460,6 @@ def get_trs(node):
     return (Vector(loc), Quaternion(rot), Vector(sca))
 
 
-
 def link_tree(scene, vnode):
     """Link all the Blender objects under vnode into the given Blender scene."""
     if 'blender_object' in vnode:

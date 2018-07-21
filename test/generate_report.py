@@ -30,6 +30,10 @@ def run_tests():
         glob.glob(samples_path + '/**/*.gltf', recursive=True) +
         glob.glob(samples_path + '/**/*.glb', recursive=True)
     )
+
+    # Skip Draco encoded files for now
+    files = [fn for fn in files if "Draco" not in fn]
+
     for filename in files:
         print('\nTrying ', filename, '...')
 
