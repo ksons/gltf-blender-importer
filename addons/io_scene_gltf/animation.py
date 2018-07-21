@@ -67,21 +67,25 @@ def add_animation(op, anim_id):
         output = op.get('accessor', sampler['output'])
         interpolation = sampler.get('interpolation', 'LINEAR')
 
-        if interpolation not in ['LINEAR', 'STEP', 'CUBICSPLINE']:
-            print('unknown interpolation: %s', interpolation)
-            interpolation = 'LINEAR'
         if interpolation == 'CUBICSPLINE':
             # TODO: not supported; for now drop the tangents and switch to LINEAR
             # TODO: this work-around is also UNTESTED :)
             output = [output[i] for i in range(1, len(output, 3))]
-            interpolation = 'LINEAR'
-        if interpolation == 'STEP':
-            interpolation = 'CONSTANT'
+            bl_interpolation = 'LINEAR'
+        elif interpolation == 'STEP':
+            bl_interpolation = 'CONSTANT'
+        elif interpolation == 'LINEAR':
+            bl_interpolation = 'LINEAR'
+        else:
+            print('unknown interpolation: %s', interpolation)
+            bl_interpolation = 'LINEAR'
+
 
         node_curves.setdefault(node_id, {})[path] = {
             'input': input,
             'output': output,
             'interpolation': interpolation,
+            'bl_interpolation': bl_interpolation,
         }
 
     for node_id, curves in node_curves.items():
@@ -123,6 +127,10 @@ def add_action(op, animation_id, node_id, curves):
             curve = curves[target]
             convert = CONVERT_FNS[target]
 
+            ordinates = curve['output']
+            if target == 'rotation' and curve['interpolation'] == 'LINEAR':
+                ordinates = shorten_quaternion_paths(ordinates)
+
             # Create an fcurve for each component (eg. xyz) and then loop over
             # the curve's points, filling in each fcurve with the corresponding
             # component.
@@ -138,13 +146,11 @@ def add_action(op, animation_id, node_id, curves):
             for fcurve in fcurves:
                 fcurve.keyframe_points.add(len(curve['input']))
 
-            # TODO: set interpolation
-
-            for k, (t, y) in enumerate(zip(curve['input'], curve['output'])):
+            for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
                 y = convert(y)
                 for i, fcurve in enumerate(fcurves):
-                    fcurve.keyframe_points[k].interpolation = curve['interpolation']
+                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
                     fcurve.keyframe_points[k].co = [frame, y[i]]
 
             for fcurve in fcurves:
@@ -242,6 +248,9 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
             curve = curves[target]
             ordinates = pose_ordinates[target]
 
+            if target == 'rotation' and curve['interpolation'] == 'LINEAR':
+                ordinates = shorten_quaternion_paths(ordinates)
+
             fcurves = [
                 action.fcurves.new(data_path=base_path + '.' + data_path, index=i)
                 for i in range(0, num_components)
@@ -253,8 +262,27 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
             for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
                 for i, fcurve in enumerate(fcurves):
-                    fcurve.keyframe_points[k].interpolation = curve['interpolation']
+                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
                     fcurve.keyframe_points[k].co = [frame, y[i]]
 
             for fcurve in fcurves:
                 fcurve.update()
+
+
+def shorten_quaternion_paths(qs):
+    """
+    Given a list of quaternions, return a list of quaternions which produce the
+    same rotations but where each element is always the closest quaternion to
+    its predecessor.
+
+    Applying this to the ordinates of a curve ensure rotation always takes the
+    "shortest path". See glTF issue #1395.
+    """
+    # Also note: it does not matter if you apply this before or after coordinate
+    # conversion :)
+    res = []
+    if qs: res.append(qs[0])
+    for i in range(1, len(qs)):
+        q = Quaternion(qs[i])
+        res.append(-q if q.dot(res[-1]) < 0 else q)
+    return res
