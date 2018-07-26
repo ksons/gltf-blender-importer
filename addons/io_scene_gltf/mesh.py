@@ -1,6 +1,6 @@
 import bmesh
 import bpy
-
+from mathutils import Vector
 
 def convert_coordinates(v):
     """Convert glTF coordinate system to Blender."""
@@ -103,16 +103,15 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
 
     # Put the positions in their Blender order (and convert coordinates while
     # we're at it)
-    positions = [
+    verts = [
         convert_coordinates(p)
         for i, p in enumerate(positions) if i in used_vert_idxs
     ]
-
     # Put the topology in terms of Blender idxs
     edges = [tuple(gltf2bl[x] for x in y) for y in edges]
     faces = [tuple(gltf2bl[x] for x in y) for y in faces]
 
-    me.from_pydata(positions, edges, faces)
+    me.from_pydata(verts, edges, faces)
     me.validate()
 
 
@@ -194,6 +193,36 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         bme.to_mesh(me)
         bme.free()
 
+    # Fill in morph target positions (in Blender, shape keys)
+    # HACK: the only way I could find to add these was to put the mesh in an
+    # object and call shape_key_add.
+    dummy_ob = None
+    for k, target in enumerate(primitive.get('targets', [])):
+        if 'POSITION' not in target: continue
+        morph_positions = op.get('accessor', target['POSITION'])
+
+        if dummy_ob is None:
+            dummy_ob = bpy.data.objects.new('{dummy}', me)
+            dummy_ob.shape_key_add('Basis')
+            me.shape_keys.name = '{dummy}'
+
+        dummy_ob.shape_key_add('Morph Target %d' % k)
+
+        # sigh, another bmesh round-trip...
+        bme = bmesh.new()
+        bme.from_mesh(me)
+        layer = bme.verts.layers.shape['Morph Target %d' % k]
+        for i, vert in enumerate(bme.verts):
+            vert[layer] = (
+                Vector(convert_coordinates(positions[bl2gltf[i]])) +
+                Vector(convert_coordinates(morph_positions[bl2gltf[i]]))
+            )
+        bme.to_mesh(me)
+        bme.free()
+    if dummy_ob:
+        bpy.data.objects.remove(dummy_ob)
+        # Does not seem to be a way to remove the now-unused (?) shape key
+
 
     me.update()
 
@@ -242,6 +271,7 @@ def create_mesh(op, idx):
         for primitive in primitives
     ))
 
+
     bme = bmesh.new()
     for i, primitive in enumerate(mesh['primitives']):
         blender_material = op.get('material', primitive.get('material', 'default_material'))
@@ -254,9 +284,34 @@ def create_mesh(op, idx):
         )
         bme.from_mesh(tmp_mesh)
         bpy.data.meshes.remove(tmp_mesh)
+
+
     me = bpy.data.meshes.new(name)
+
+    # Create a shape key to hold any morph target data (same hack as above)
+    dummy_ob = None
+    morph_target_indices = [
+        i
+        for i, t in enumerate(mesh['primitives'][0].get('targets', []))
+        if 'POSITION' in t
+    ]
+    if morph_target_indices:
+        dummy_ob = bpy.data.objects.new('{dummy}', me)
+        dummy_ob.shape_key_add('Basis')
+        me.shape_keys.name = name
+        for i in morph_target_indices:
+            dummy_ob.shape_key_add('Morph Target %d' % i)
+
     bme.to_mesh(me)
     bme.free()
+
+    if dummy_ob:
+        bpy.data.objects.remove(dummy_ob)
+
+    # Fill in default morph target weights
+    if 'weights' in mesh:
+        for i in morph_target_indices:
+            me.shape_keys.key_blocks['Morph Target %i' % i].value = mesh['weights'][i]
 
     # Fill in the material list (we can't do me.materials = materials since this
     # property is read-only).
@@ -269,4 +324,16 @@ def create_mesh(op, idx):
 
     me.update()
 
-    return me
+    if not morph_target_indices:
+        return me
+    else:
+        # Tell op.get not to cache us if we have morph targets; this is because
+        # morph target weights are stored on the mesh instance in glTF, what
+        # would be on the object in Blender. But in Blender shape keys are part
+        # of the mesh. So when an object wants a mesh with morph targets, it
+        # always needs to get a new one. Ergo we lose sharing for meshes with
+        # morph targets.
+        return {
+            'result': me,
+            'do_not_cache_me': True,
+        }

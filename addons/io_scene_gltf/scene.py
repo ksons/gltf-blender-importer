@@ -214,21 +214,24 @@ def create_vforest(op):
     for id, node in enumerate(nodes):
         vnode = id_to_vnode[id]
         if 'mesh' in node:
-            if vnode['type'] == 'NORMAL':
-                vnode['mesh_id'] = node['mesh']
-                if 'skin' in node:
-                    vnode['skin'] = node['skin']
-            else:
+            if vnode['type'] != 'NORMAL':
+                # It is the child of a bone; create a new vnode to hold the mesh
                 mesh_id = node['mesh']
                 mesh_vnode = {
                     'name': op.gltf['meshes'][mesh_id].get('name', 'meshes[%d]' % mesh_id),
                     'children': [],
                     'type': 'NORMAL',
-                    'mesh_id': mesh_id,
                     'parent': vnode,
                 }
                 vnodes.append(mesh_vnode)
                 vnode['children'].append(mesh_vnode)
+                vnode = mesh_vnode
+
+            vnode['mesh_id'] = node['mesh']
+            if 'skin' in node:
+                vnode['skin'] = node['skin']
+            if 'weights' in node:
+                vnode['morph_weights'] = node['weights']
 
         if 'camera' in node:
             camera_id = node['camera']
@@ -271,6 +274,14 @@ def realize_vforest(op):
             data = None
             if 'mesh_id' in vnode:
                 data = op.get('mesh', vnode['mesh_id'])
+
+                # Set instance's morph target weights
+                if 'morph_weights' in vnode and data.shape_keys:
+                    keyblocks = data.shape_keys.key_blocks
+                    for i, weight in enumerate(vnode['morph_weights']):
+                        if ('Morph Target %d' % i) in keyblocks:
+                            keyblocks['Morph Target %d' % i].value = weight
+
             elif 'camera_id' in vnode:
                 data = op.get('camera', vnode['camera_id'])
 

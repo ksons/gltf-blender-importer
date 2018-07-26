@@ -133,11 +133,18 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col.prop(self, 'framerate')
 
 
-    def get(self, type, id):
-        cache = self.caches.setdefault(type, {})
-        if id not in cache:
-            cache[id] = CREATE_FNS[type](self, id)
-        return cache[id]
+    def get(self, kind, id):
+        cache = self.caches.setdefault(kind, {})
+        if id in cache:
+            return cache[id]
+        else:
+            result = CREATE_FNS[kind](self, id)
+            if type(result) == dict and result.get('do_not_cache_me', False):
+                # Callee is requesting we not cache it
+                return result['result']
+            else:
+                cache[id] = result
+                return result
 
     def load(self):
         filename = self.filepath
