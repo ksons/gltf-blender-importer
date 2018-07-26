@@ -117,19 +117,22 @@ def add_action(op, animation_id, node_id, curves):
     # through.
 
     triples = [
-        # (glTF path name, Blender path name, number of components)
-        ('translation', 'location', 3),
-        ('rotation', 'rotation_quaternion', 4),
-        ('scale', 'scale', 3)
+        # (glTF path name, Blender path name, group name, number of components)
+        ('translation', 'location', 'Location', 3),
+        ('rotation', 'rotation_quaternion', 'Rotation', 4),
+        ('scale', 'scale', 'Scale', 3)
     ]
-    for target, data_path, num_components in triples:
+    for target, data_path, group_name, num_components in triples:
         if target in curves:
             curve = curves[target]
             convert = CONVERT_FNS[target]
 
+
             ordinates = curve['output']
             if target == 'rotation' and curve['interpolation'] == 'LINEAR':
                 ordinates = shorten_quaternion_paths(ordinates)
+
+            group = action.groups.new(group_name)
 
             # Create an fcurve for each component (eg. xyz) and then loop over
             # the curve's points, filling in each fcurve with the corresponding
@@ -145,6 +148,7 @@ def add_action(op, animation_id, node_id, curves):
 
             for fcurve in fcurves:
                 fcurve.keyframe_points.add(len(curve['input']))
+                fcurve.group = group
 
             for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
@@ -236,6 +240,8 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     bone_name = bone_vnode['blender_name']
     base_path = 'pose.bones[%s]' % quote(bone_name)
 
+    group = action.groups.new(bone_name)
+
     triples = [
         # (glTF path name, Blender path name, number of components)
         ('translation', 'location', 3),
@@ -257,6 +263,7 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
 
             for fcurve in fcurves:
                 fcurve.keyframe_points.add(len(curve['input']))
+                fcurve.group = group
 
             for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
