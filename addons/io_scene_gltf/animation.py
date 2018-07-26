@@ -50,7 +50,8 @@ def add_animation(op, anim_id):
     #             'interpolation': 'LINEAR'
     #         },
     #         'rotation': ...,
-    #         'scale': ...
+    #         'scale': ...,
+    #         'weights': ...,
     #     }
     # }
     node_curves = {}
@@ -93,6 +94,8 @@ def add_animation(op, anim_id):
             add_bone_fcurves(op, anim_id, node_id, curves)
         else:
             add_action(op, anim_id, node_id, curves)
+        if 'weights' in curves:
+            add_shape_key_action(op, anim_id, node_id, curves['weights'])
 
 
 
@@ -101,7 +104,8 @@ def add_action(op, animation_id, node_id, curves):
     # An action in Blender contains fcurves (Blender's animation curves) which
     # target a particular TRS component. An action only applies to one object,
     # so we need to create an action for each (glTF animation, animated object)
-    # pair. This is unfortunate; it would be better to
+    # pair. This is unfortunate; it would be better to have a one-to-one
+    # correspondence glTF animation <-> Blender ???.
     animation = op.gltf['animations'][animation_id]
     name = animation.get('name', 'animations[%d]' % animation_id)
     blender_object = op.id_to_vnode[node_id]['blender_object']
@@ -118,13 +122,13 @@ def add_action(op, animation_id, node_id, curves):
     # coordinates) as those needed in Blender's fcurve so we just copy them on
     # through.
 
-    triples = [
+    target_data = [
         # (glTF path name, Blender path name, group name, number of components)
         ('translation', 'location', 'Location', 3),
         ('rotation', 'rotation_quaternion', 'Rotation', 4),
         ('scale', 'scale', 'Scale', 3)
     ]
-    for target, data_path, group_name, num_components in triples:
+    for target, data_path, group_name, num_components in target_data:
         if target in curves:
             curve = curves[target]
             convert = CONVERT_FNS[target]
@@ -298,3 +302,43 @@ def shorten_quaternion_paths(qs):
         q = Quaternion(qs[i])
         res.append(-q if q.dot(res[-1]) < 0 else q)
     return res
+
+
+
+def add_shape_key_action(op, anim_id, node_id, curve):
+    # We have to create a separate action for animating shape keys.
+    animation = op.gltf['animations'][anim_id]
+    blender_object = op.mesh_instance_to_vnode[node_id]['blender_object']
+
+    if not blender_object.data.shape_keys:
+        # Can happen if the mesh has only non-POSITION morph targets so we
+        # didn't create a shape key
+        return
+
+    name = animation.get('name', 'animations[%d]' % anim_id)
+    name += '@' + blender_object.name
+    name += ' (Morph)'
+    action = bpy.data.actions.new(name)
+    action.id_root = 'KEY'
+    action.use_fake_user = True
+
+    # Play the first animation by default
+    if anim_id == 0:
+        blender_object.data.shape_keys.animation_data_create().action = action
+
+    # Find out the number of morph targets
+    mesh = op.gltf['meshes'][op.gltf['nodes'][node_id]['mesh']]
+    num_targets = len(mesh['primitives'][0]['targets'])
+
+    for i in range(0, num_targets):
+        data_path = 'key_blocks[%s].value' % quote('Morph Target %d' % i)
+        fcurve = action.fcurves.new(data_path=data_path)
+        fcurve.keyframe_points.add(len(curve['input']))
+
+        for k, t in enumerate(curve['input']):
+            frame = t * op.framerate
+            y = curve['output'][num_targets * k + i]
+            fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
+            fcurve.keyframe_points[k].co = [frame, y]
+
+        fcurve.update()

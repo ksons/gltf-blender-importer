@@ -103,6 +103,10 @@ def create_vforest(op):
     vnodes = []
     # Maps an index into the gltf's nodes array to its corresponding vnode
     id_to_vnode = {}
+    # Maps the index of a node that instantiates a mesh into the vnode where the
+    # mesh is instantiated (not necessarily the same as id_to_vnode since we
+    # might put the mesh on a dummy child)
+    mesh_instance_to_vnode = {}
 
 
     # Initial pass: create a vnode for each node
@@ -232,6 +236,7 @@ def create_vforest(op):
                 vnode['skin'] = node['skin']
             if 'weights' in node:
                 vnode['morph_weights'] = node['weights']
+            mesh_instance_to_vnode[id] = vnode
 
         if 'camera' in node:
             camera_id = node['camera']
@@ -252,6 +257,7 @@ def create_vforest(op):
     op.vnodes = vnodes
     op.vnode_roots = vnode_roots
     op.id_to_vnode = id_to_vnode
+    op.mesh_instance_to_vnode = mesh_instance_to_vnode
 
 
 def realize_vforest(op):
