@@ -108,8 +108,10 @@ def add_action(op, animation_id, node_id, curves):
     name += '@' + blender_object.name
 
     action = bpy.data.actions.new(name)
+    action.use_fake_user = True
 
-    if blender_object.animation_data is None:
+    # Play the first animation by default
+    if animation_id == 0:
         blender_object.animation_data_create().action = action
 
     # The values in the glTF curve are the same (excepting the change of
@@ -174,9 +176,13 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
         name = op.gltf['animations'][anim_id].get('name', 'animations[%d]' % anim_id)
         name += '@' + armature_vnode['blender_armature'].name
         action = bpy.data.actions.new(name)
-        action_cache[anim_id] = bpy.data.actions.new(name)
-        if armature_vnode['blender_armature'].animation_data is None:
-            armature_vnode['blender_armature'].animation_data_create().action = action
+        action_cache[anim_id] = action
+        action.use_fake_user = True
+
+        # Play the first animation by default
+        if anim_id == 0:
+            bl_object = armature_vnode['blender_object']
+            bl_object.animation_data_create().action = action
 
     action = action_cache[anim_id]
 
