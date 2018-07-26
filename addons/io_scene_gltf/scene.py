@@ -254,6 +254,12 @@ def create_vforest(op):
 def realize_vforest(op):
     """Create actual Blender nodes for the vnodes."""
 
+    # See #16
+    try:
+        bpy.ops.object.mode_set(mode='OBJECT')
+    except Exception:
+        pass
+
     bone_rotate_mat = op.bone_rotation.to_matrix().to_4x4()
 
     any_objects_child_of_bone = [False] # detect this case so we can warn later
