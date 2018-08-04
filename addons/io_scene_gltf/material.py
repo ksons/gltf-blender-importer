@@ -31,7 +31,7 @@ def create_image(op, idx):
 
     if not img:
         # The image data is in buffer, but I don't know how to load an image
-        # from memory, we'll write it to a temp file and load it from there.
+        # from memory. We'll write it to a temp file and load it from there.
         # Yes, this is a hack :)
         with tempfile.TemporaryDirectory() as tmpdir:
             # TODO: use the image's name, if it has one, for the file path; but
@@ -88,8 +88,7 @@ def create_material_from_properties(op, material, material_name, use_color0):
     links.new(g.outputs[0], mo.inputs[0])
 
 
-
-    # Alpha mode affects many things...
+    # Alpha mode affects many things. Do it first.
     alpha_mode = material.get('alphaMode', 'OPAQUE')
     # mog_alpha modifies RGBA alpha values based on the alpha mode
     if alpha_mode == 'OPAQUE':
@@ -104,6 +103,7 @@ def create_material_from_properties(op, material, material_name, use_color0):
         g.inputs['AlphaMode'].default_value = 1.0
 
 
+    # Now wire up constant (ie. non-texture) material properties
     def set_value(obj, key, input_name, mog=lambda x: x):
         if key in obj and input_name in g.inputs:
             g.inputs[input_name].default_value = mog(obj[key])
@@ -121,178 +121,265 @@ def create_material_from_properties(op, material, material_name, use_color0):
     set_value(material, 'doubleSided', 'DoubleSided', mog=int)
 
 
-    # A cache of nodes for different texcoords (eg. TEXCOORD_1)
-    texcoord_nodes = {}
-    # Where the put the next texcoord node
-    # HACK: this is inside of an array for stupid Python reasons
-    next_texcoord_node_y = [141]
+    # Now textures. First, make a list of all the textures we'll need. The list
+    # contains pairs (glTF textureInfo, g's input node name).
+    textures = [
+        (obj[prop_name], input_name)
+        for obj, prop_name, input_name in [
+            (pbr, 'baseColorTexture', 'BaseColor'),
+            (pbr, 'diffuseTexture', 'Diffuse'),
+            (pbr, 'metallicRoughnessTexture', 'MetallicRoughness'),
+            (pbr, 'specularGlossinessTexture', 'Specular'),
+            (material, 'normalTexture', 'Normal'),
+            (material, 'occlusionTexture', 'Occlusion'),
+            (material, 'emissiveTexture', 'Emissive'),
+        ]
+        if prop_name in obj and input_name in g.inputs
+    ]
 
-    def texture_node(name, props):
-        """Create a texture node from an textureInfo dict."""
-        texture = op.gltf['textures'][props['index']]
+    # We'll lin the texture nodes up in a vertical column centered on g
+    x = g.location[0] - 480
+    y = g.location[1] + (len(textures) * 300 + (len(textures) - 1) * 10) / 2 - 300
+    y_step = -310
 
-        if 'MSFT_texture_dds' in props.get('extensions', {}):
-            image_id = texture['MSFT_texture_dds']['source']
-        else:
-            image_id = texture['source']
+    for texinfo, input in textures:
+        tex = create_texture_node(op, tree, texinfo, x, y)
+        y += y_step
+        tex.name = {
+            'BaseColor': 'Base Color Texture',
+            'Diffuse': 'Diffuse Texture',
+            'MetallicRoughness': 'Metallic-Roughness Texture',
+            'Specular': 'Specular-Glossiness Texture',
+            'Normal': 'Normal Texture',
+            'Occlusion': 'Occlusion Texture',
+            'Emissive': 'Emissive Texture',
+        }[input]
+        tex.label = tex.name
+        links.new(tex.outputs[0], g.inputs[input])
 
-        tex = tree.nodes.new('ShaderNodeTexImage')
-        tex.name = name
-        tex.label = name
-        tex.image = op.get('image', image_id)
-        tex.width = 216
-
-        texcoord = props.get('texCoord', 0)
-
-        # Handle any texture transform
-        # TODO: test this!!!
-        xform = None
-        if 'KHR_texture_transform' in texture.get('extensions', {}):
-            t = texture['extensions']['KHR_texture_transform']
-
-            texcoord = t.get('texCoord', texcoord)
-            offset = t.get('offset', [0, 0])
-            rotation = t.get('rotation', 0)
-            scale = t.get('scale', [1, 1])
-
-            # We need a coordinate change since we change (u,v)->(u,1-v) when we
-            # come into Blender. My calculation gave this but again it is NOT
-            # TESTED! It does fix the identity though, so that's promising :)
-            z = scale[1] * Vector((-math.sin(rotation), -math.cos(rotation)))
-            offset, rotation, scale = (
-                z + Vector((offset[0], 1 - offset[1])),
-                -rotation,
-                [scale[0], scale[1]],
-            )
-
-            xform = tree.nodes.new('ShaderNodeMapping')
-            xform.vector_type = 'VECTOR' # TODO: or 'TEXTURE'?
-            xform.translation[0] = offset[0]
-            xform.translation[1] = offset[1]
-            xform.rotation[2] = rotation
-            xform.scale[0] = scale[0]
-            xform.scale[1] = scale[1]
-            # TODO: put it in some good location
-
-        # Wire the texcoord into either the transform if it exists, or directly
-        # to the texture node
-        if texcoord != 0:
-            if texcoord not in texcoord_nodes:
-                texcoord_node = tree.nodes.new('ShaderNodeUVMap') # TODO: is this the right kind of node?
-                texcoord_node.uv_map = 'TEXCOORD_%d' % texcoord
-                texcoord_node.location = -812, next_texcoord_node_y[0]
-                next_texcoord_node_y[0] -= 120
-                texcoord_nodes[texcoord] = texcoord_node
-            if xform:
-                links.new(texcoord_nodes[texcoord].outputs[0], xform.inputs[0])
-                links.new(xform.outputs[0], tex.inputs[0])
-            else:
-                links.new(texcoord_nodes[texcoord].outputs[0], tex.inputs[0])
-
-
-        # Do the sampler properties
-        # TODO: these don't map very easily to a Blender Image Texture Node so
-        # there are lots of limitations :/
-
-        if 'sampler' in texture:
-            sampler = op.gltf['samplers'][texture['sampler']]
-        else:
-            sampler = {}
-
-        NEAREST = 9728
-        LINEAR = 9729
-        AUTO_FILTER = LINEAR # which one to use if unspecified
-        mag_filter = sampler.get('magFilter', AUTO_FILTER)
-        # Just ignore the min-filter for now; we can't set them separately and
-        # reporting when they differ is very noisy
-        if mag_filter == NEAREST:
-            tex.interpolation = 'Closest'
-        elif mag_filter == LINEAR:
-            tex.interpolation = 'Linear'
-        else:
-            print('unknown texture filter: %d' % mag_filter)
-
-        CLAMP_TO_EDGE = 33071
-        MIRRORED_REPEAT = 33648
-        REPEAT = 10497
-        wrap_s = sampler.get('wrapS', REPEAT)
-        wrap_t = sampler.get('wrapT', REPEAT)
-        if wrap_s != wrap_t:
-            print('unsupported: wrap-s and wrap-t cannot be different (using wrap-s)')
-        if wrap_s == CLAMP_TO_EDGE:
-            tex.extension = 'EXTEND'
-        elif wrap_s == MIRRORED_REPEAT:
-            print('unsupported: textures cannot mirrored-repeat')
-        elif wrap_s == REPEAT:
-            tex.extension = 'REPEAT'
-        else:
-            print('unknown wrap mode: %d' % wrap_s)
-
-        return tex
-
-    if 'baseColorTexture' in pbr and 'BaseColor' in g.inputs:
-        tex = texture_node('Base Color Texture', pbr['baseColorTexture'])
-        tex.location = -566, 240
-        tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], g.inputs['BaseColor'])
-        if alpha_mode != 'OPAQUE':
-            links.new(tex.outputs[1], g.inputs['Alpha'])
-
-    if 'diffuseTexture' in pbr and 'Diffuse' in g.inputs:
-        tex = texture_node('Diffuse Texture', pbr['diffuseTexture'])
-        tex.location = -566, 240
-        tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], g.inputs['Diffuse'])
-        if alpha_mode != 'OPAQUE':
-            links.new(tex.outputs[1], g.inputs['Alpha'])
-
-    if 'metallicRoughnessTexture' in pbr and 'MetallicRoughness' in g.inputs:
-        tex = texture_node('Metallic Roughness Texture', pbr['metallicRoughnessTexture'])
-        tex.location = -315, 240
-        tex.color_space = 'NONE'
-        links.new(tex.outputs[0], g.inputs['MetallicRoughness'])
-
-    if 'specularGlossinessTexture' in pbr and 'Specular' in g.inputs:
-        tex = texture_node('Specular Glossiness Texture', pbr['specularGlossinessTexture'])
-        tex.location = -315, 240
-        tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], g.inputs['Specular'])
-        links.new(tex.outputs[1], g.inputs['Glossiness'])
-
-    if 'normalTexture' in material and 'Normal' in g.inputs:
-        tex = texture_node('Normal Texture', material['normalTexture'])
-        tex.location = -566, -37
-        tex.color_space = 'NONE'
-        links.new(tex.outputs[0], g.inputs['Normal'])
-        if 'scale' in material['normalTexture']:
-            g.inputs['NormalScale'].default_value = material['normalTexture']['scale']
-
-    if 'occlusionTexture' in material and 'Occlusion' in g.inputs:
-        tex = texture_node('Occlusion Texture', material['occlusionTexture'])
-        tex.location = -315, -37
-        tex.color_space = 'NONE'
-        links.new(tex.outputs[0], g.inputs['Occlusion'])
-        if 'strength' in material['occlusionTexture']:
-            g.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
-
-    if 'emissiveTexture' in material and 'Emissive' in g.inputs:
-        tex = texture_node('Emissive Texture', material['emissiveTexture'])
-        tex.location = -441, -311
-        tex.color_space = 'COLOR'
-        links.new(tex.outputs[0], g.inputs['Emissive'])
-
+        # Special handling for particular types
+        if input == 'BaseColor' or input == 'Diffuse':
+            tex.color_space = 'COLOR'
+            if alpha_mode != 'OPAQUE':
+                links.new(tex.outputs[1], g.inputs['Alpha'])
+        elif input == 'Specular':
+            tex.color_space = 'COLOR'
+            links.new(tex.outputs[1], g.inputs['Glossiness'])
+        elif input == 'Normal':
+            if 'scale' in material['normalTexture']:
+                g.inputs['NormalScale'].default_value = material['normalTexture']['scale']
+        elif input == 'Occlusion':
+            if 'strength' in material['occlusionTexture']:
+                g.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
+        elif input == 'Emissive':
+            tex.color_space = 'COLOR'
 
 
     if use_color0:
         node = tree.nodes.new('ShaderNodeAttribute')
         node.name = 'Vertex Colors'
-        node.location = -151, -384
+        node.location = [g.location[0] - 310, y]
         node.attribute_name = 'COLOR_0'
         links.new(node.outputs[0], g.inputs['COLOR_0'])
         g.inputs['Use COLOR_0'].default_value = 1.0
 
 
     return mat
+
+
+# This function creates an Image Texture node for each texture, plus any
+# nodes needed for its wrapping mode, texture transform, etc.
+def create_texture_node(op, tree, info, x, y):
+    links = tree.links
+    texture = op.gltf['textures'][info['index']]
+
+    img_texture = tree.nodes.new('ShaderNodeTexImage')
+    if 'MSFT_texture_dds' in info.get('extensions', {}):
+        image_id = texture['MSFT_texture_dds']['source']
+    else:
+        image_id = texture['source']
+    img_texture.image = op.get('image', image_id)
+    img_texture.width = 216
+    img_texture.location = [x, y]
+
+    # Now we need to make some nodes to handle the texture coordinates that get
+    # fed into the texture node. There are three possible stages (they can be
+    # absent)
+    #
+    #     [texcoord] -> [KHR texture transform] -> [wrapping calc]
+    #
+    # * The texcoord picks out which of the TEXCOORD_X attributes we use. It
+    #   always has to be present if the others are or if X is not 0.
+    # * The texture transform implements the KHR_texture_transform extension.
+    # * The wrapping calc is for the wrapping mode, because though you can set
+    #   the wrapping mode on the image texture node, it is too limited to cover
+    #   all the possibilities.
+
+    # Record all the nodes we put in each stage. We need this later to position
+    # them nicely. During the first pass, we put the nodes where they would go
+    # if they were the only stage, ie. just to the left of the Image Texture
+    # node.
+    texcoord_nodes = []
+    texture_transform_nodes = []
+    wrapping_nodes = []
+    # The output socket of the last stage
+    # HACK: inside of an array because Python reasons
+    last_output = [None]
+
+
+    texcoord_set = info.get('texCoord', 0)
+
+    # Get the output from the last stage to link in. If there is no last stage,
+    # lazily creates the [texcoord] stage and uses its output.
+    def get_incoming():
+        if last_output[0] is None:
+            texcoord_node = tree.nodes.new('ShaderNodeUVMap') # TODO: is this the right kind of node?
+            texcoord_node.location = [x - 260, y]
+            texcoord_node.uv_map = 'TEXCOORD_%d' % texcoord_set
+            texcoord_nodes.append(texcoord_node)
+            last_output[0] = texcoord_node.outputs[0]
+        return last_output[0]
+
+
+    # Handle any texture transform
+    # TODO: test this!!!
+    if 'KHR_texture_transform' in texture.get('extensions', {}):
+        t = texture['extensions']['KHR_texture_transform']
+
+        texcoord_set = t.get('texCoord', texcoord_set)
+        offset = t.get('offset', [0, 0])
+        rotation = t.get('rotation', 0)
+        scale = t.get('scale', [1, 1])
+
+        # We need a coordinate change since we change (u,v)->(u,1-v) when we
+        # come into Blender. My calculation gave this but again it is NOT
+        # TESTED! It does fix the identity though, so that's promising :)
+        z = scale[1] * Vector((-math.sin(rotation), -math.cos(rotation)))
+        offset, rotation, scale = (
+            z + Vector((offset[0], 1 - offset[1])),
+            -rotation,
+            [scale[0], scale[1]],
+        )
+
+        xform = tree.nodes.new('ShaderNodeMapping')
+        xform.location = [x - 400, y]
+        texture_transform_nodes.append(xform)
+
+        xform.vector_type = 'VECTOR' # TODO: or 'TEXTURE'?
+        xform.translation[0] = offset[0]
+        xform.translation[1] = offset[1]
+        xform.rotation[2] = rotation
+        xform.scale[0] = scale[0]
+        xform.scale[1] = scale[1]
+
+        links.new(get_incoming(), xform.inputs[0])
+        last_output[0] = xform.outputs[0]
+
+
+    if 'sampler' in texture:
+        sampler = op.gltf['samplers'][texture['sampler']]
+    else:
+        sampler = {}
+
+    # Set the magnification filter.
+    NEAREST = 9728
+    LINEAR = 9729
+    NEAREST_MIPMAP_NEAREST = 9984
+    LINEAR_MIPMAP_NEAREST = 9985
+    NEAREST_MIPMAP_LINEAR = 9986
+    LINEAR_MIPMAP_LINEAR = 9986
+    AUTO_FILTER = LINEAR # which one to use if unspecified
+    mag_filter = sampler.get('magFilter', AUTO_FILTER)
+    min_filter = sampler.get('minFilter', AUTO_FILTER)
+    # Ignore mipmaps.
+    min_filter = (
+        NEAREST
+        if min_filter in [NEAREST_MIPMAP_NEAREST, NEAREST_MIPMAP_LINEAR]
+        else LINEAR
+    )
+    # We can't set the min and mag and filters separately in Blender. Just
+    # prefer linear, unless both were nearest.
+    if (min_filter, mag_filter) == (NEAREST, NEAREST):
+        img_texture.interpolation = 'Closest'
+    else:
+        img_texture.interpolation = 'Linear'
+
+    # Handle the wrapping mode.
+    CLAMP_TO_EDGE = 33071
+    MIRRORED_REPEAT = 33648
+    REPEAT = 10497
+    wrap_s = sampler.get('wrapS', REPEAT)
+    wrap_t = sampler.get('wrapT', REPEAT)
+    if (wrap_s, wrap_t) == (CLAMP_TO_EDGE, CLAMP_TO_EDGE):
+        img_texture.extension = 'EXTEND'
+    elif (wrap_s, wrap_t) == (REPEAT, REPEAT):
+        img_texture.extension = 'REPEAT'
+    else:
+        # Damn, Blender can't do this. We have to insert the wrapping stage :(
+        img_texture.extension = 'EXTEND'
+        frame = tree.nodes.new('NodeFrame')
+        frame.label = 'Wrapping Mode'
+        wrapping_nodes.append(frame)
+        frame.width, frame.height = 650, 244
+        frame.location = [x - 963, y - 90]
+
+        sep_xyz = tree.nodes.new('ShaderNodeSeparateXYZ')
+        com_xyz = tree.nodes.new('ShaderNodeCombineXYZ')
+        sep_xyz.parent = frame
+        com_xyz.parent = frame
+        sep_xyz.location = [212, 12]
+        com_xyz.location = [727, 45]
+        links.new(get_incoming(), sep_xyz.inputs[0])
+
+        def do_component(wrap, which, y):
+            if wrap not in [CLAMP_TO_EDGE, MIRRORED_REPEAT, REPEAT]:
+                print('unknown wrap mode: %s' % wrap)
+                wrap = REPEAT
+
+            if wrap == CLAMP_TO_EDGE:
+                links.new(sep_xyz.outputs[which], com_xyz.inputs[which])
+            else:
+                n = tree.nodes.new('ShaderNodeGroup')
+                n.parent = frame
+                n.width = 222
+                n.location = [430, y]
+                group_name = (
+                    'Texcoord REPEAT'
+                    if wrap == REPEAT
+                    else 'Texcoord MIRRORED_REPEAT'
+                )
+                n.node_tree = op.get('node_group', group_name)
+                links.new(sep_xyz.outputs[which], n.inputs[0])
+                links.new(n.outputs[0], com_xyz.inputs[which])
+
+        do_component(wrap_s, 'X', y=90)
+        do_component(wrap_t, 'Y', y=-50)
+
+        last_output[0] = com_xyz.outputs[0]
+
+
+    # Wire the last stage into the Image Texture Node
+    # Always make a texcoord node for TEXCOORD_X, X != 0
+    if texcoord_set != 0:
+        get_incoming()
+    if last_output[0]:
+        links.new(last_output[0], img_texture.inputs[0])
+
+
+    # As promised, we now place the nodes in nice positions by moving each stage
+    # to the left to make room for the stages that come after it.
+    def move_back(nodes, delta):
+        for node in nodes: node.location[0] -= delta
+    if wrapping_nodes:
+        move_back(texture_transform_nodes, 780)
+        move_back(texcoord_nodes, 780)
+    if texture_transform_nodes:
+        move_back(texcoord_nodes, 400)
+
+
+    return img_texture
+
+
 
 
 def compute_materials_using_color0(op):
@@ -312,7 +399,6 @@ def compute_materials_using_color0(op):
     """
     op.materials_using_color0 = set()
     for mesh in op.gltf.get('meshes', []):
-        primitives = mesh['primitives']
         for primitive in mesh['primitives']:
             if 'COLOR_0' in primitive['attributes']:
                 mat = primitive.get('material', 'default_material')

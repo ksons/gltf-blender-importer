@@ -143,7 +143,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         # Old Blender versions only take RGB and new ones only take RGBA
         if bpy.app.version >= (2, 79, 4): # this bound is not necessarily tight
             if colors and len(colors[0]) == 3:
-                colors = [color+[1] for color in colors]
+                colors = [color+(1,) for color in colors]
         else:
             if colors and len(colors[0]) == 4:
                 print("your Blender version doesn't support RGBA vertex colors. Upgrade!")
