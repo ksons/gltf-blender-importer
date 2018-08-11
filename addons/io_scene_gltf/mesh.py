@@ -2,37 +2,259 @@ import bmesh
 import bpy
 from mathutils import Vector
 
+
+def create_mesh(op, idx):
+    mesh = op.gltf['meshes'][idx]
+    primitives = mesh['primitives']
+
+    bme = bmesh.new()
+
+    # If any of the materials used in this mesh use COLOR_0 attributes, we need
+    # to pre-emptively create that layer, or else the Attribute node referencing
+    # COLOR_0 in those materials will produce a solid red color. See
+    # material.compute_materials_using_color0, which, note, must be called
+    # before this function.
+    needs_color0 = any(
+        prim.get('material', 'default_material') in op.materials_using_color0
+        for prim in primitives
+    )
+    if needs_color0:
+        bme.loops.layers.color.new('COLOR_0')
+
+    # Make a list of all the materials this mesh will need; the material on a
+    # face is set by giving an index into this list.
+    materials = list(set(
+        op.get('material', primitive.get('material', 'default_material'))
+        for primitive in primitives
+    ))
+
+    # Add in all the primitives
+    for i, primitive in enumerate(mesh['primitives']):
+        material = op.get('material', primitive.get('material', 'default_material'))
+        material_idx = materials.index(material)
+
+        add_in_primitive(op, bme, primitive, material_idx)
+
+
+    name = mesh.get('name', 'meshes[%d]' % idx)
+    me = bpy.data.meshes.new(name)
+    bmesh_to_mesh(bme, me)
+    bme.free()
+
+
+    # Fill in default morph target weights
+    if 'weights' in mesh and me.shape_keys:
+        for i, weight in enumerate(mesh['weights']):
+            me.shape_keys.key_blocks['Morph %i' % i].value = weight
+
+    # Fill in the material list (we can't do me.materials = materials since this
+    # property is read-only).
+    for material in materials:
+        me.materials.append(material)
+
+    # Set polygon smoothing if the user requested it
+    if op.smooth_polys:
+        for polygon in me.polygons:
+            polygon.use_smooth = True
+
+    me.update()
+
+
+    if not me.shape_keys:
+        return me
+    else:
+        # Tell op.get not to cache us if we have morph targets; this is because
+        # morph target weights are stored on the mesh instance in glTF, what
+        # would be on the object in Blender. But in Blender shape keys are part
+        # of the mesh. So when an object wants a mesh with morph targets, it
+        # always needs to get a new one. Ergo we lose sharing for meshes with
+        # morph targets.
+        return {
+            'result': me,
+            'do_not_cache_me': True,
+        }
+
+
+def bmesh_to_mesh(bme, me):
+    bme.to_mesh(me)
+
+    if len(bme.verts.layers.shape) != 0:
+        # The above does NOT create shape keys so if there's shape data we'll
+        # have to do it by hand. The only way I could find to create a shape key
+        # was to temporarily parent me to an object and use obj.shape_key_add.
+        dummy_ob = bpy.data.objects.new('##dummy-object##', me)
+        dummy_ob.shape_key_add('Basis')
+        me.shape_keys.name = me.name
+        for layer_name in bme.verts.layers.shape.keys():
+            dummy_ob.shape_key_add(layer_name)
+            key_block = me.shape_keys.key_blocks[layer_name]
+            layer = bme.verts.layers.shape[layer_name]
+
+            for i, v in enumerate(bme.verts):
+                key_block.data[i].co = v[layer]
+
+        bpy.data.objects.remove(dummy_ob)
+
+
 def convert_coordinates(v):
     """Convert glTF coordinate system to Blender."""
     return [v[0], -v[2], v[1]]
 
+def get_layer(bme_layers, name):
+    """Gets a layer from a BMLayerCollection, creating it if it does not exist."""
+    if name not in bme_layers:
+        return bme_layers.new(name)
+    return bme_layers[name]
 
-def primitive_to_mesh(op, primitive, name, layers, material_index):
-    """Create a Blender mesh for a glTF primitive."""
-
+def add_in_primitive(op, bme, primitive, material_index):
+    """Adds the data for a glTF primitive into a bmesh."""
     attributes = primitive['attributes']
-
-    me = bpy.data.meshes.new(name)
 
     # Early out if there's no POSITION data
     if 'POSITION' not in attributes:
-        return me
-
+        return
     positions = op.get('accessor', attributes['POSITION'])
-
-    edges = []
-    faces = []
-
-
-    # Generate the topology
-
-    mode = primitive.get('mode', 4)
 
     if 'indices' in primitive:
         indices = op.get('accessor', primitive['indices'])
     else:
         indices = range(0, len(positions))
 
+    # Every primitive adds in a set of vertices to the bmesh. Each vertex has an
+    # index in the bme.verts array, its bl_idx, and another in the arrays of
+    # primitive attributes, its prim_idx.
+    #
+    # bl2prim contains pairs (bl_idx, prim_idx) for every vertex we'll add in,
+    # ordered by bl_idx (the bl_idxs form a contiguous interval).
+    #
+    # Note that only vertices that show up the indices array actually get put
+    # into the mesh and thus have a bl_idx! See #27.
+    bl2prim = []
+    used_prim_idxs = set(indices)
+    bl_idx = len(bme.verts)
+    for prim_idx in range(0, len(positions)):
+        if prim_idx in used_prim_idxs:
+            bl2prim.append((bl_idx, prim_idx))
+            bl_idx += 1
+
+    # Generate the topology (in terms of prim_idxs)
+    mode = primitive.get('mode', 4)
+    edges, tris = edges_and_tris(indices, mode)
+
+    # verts is a list of the positions of the vertices we'll add in.
+    verts = [
+        convert_coordinates(positions[prim_idx])
+        for bl_idx, prim_idx in bl2prim
+    ]
+    # We need to gives edges and faces in terms of indices into verts.
+    # First build a table mapping prim_idxs to vert_idxs.
+    prim2vert = [-1] * len(positions)
+    first_bl_idx = len(bme.verts)
+    for bl_idx, prim_idx in bl2prim:
+        vert_idx = bl_idx - first_bl_idx
+        prim2vert[prim_idx] = vert_idx
+    vert_edges = [tuple(prim2vert[x] for x in y) for y in edges]
+    vert_tris = [tuple(prim2vert[x] for x in y) for y in tris]
+
+    # Finally create a tmp mesh with all our vertices and add it to bme.
+    tmp_mesh = bpy.data.meshes.new('##tmp-mesh##')
+    tmp_mesh.from_pydata(verts, vert_edges, vert_tris)
+    tmp_mesh.validate()
+    bme.from_mesh(tmp_mesh)
+    bpy.data.meshes.remove(tmp_mesh)
+
+    bme.verts.ensure_lookup_table()
+
+
+    # Set the material index
+    for face in bme.faces:
+        face.material_index = material_index
+
+    # Set normals
+    if 'NORMAL' in attributes:
+        normals = op.get('accessor', attributes['NORMAL'])
+        for bl_idx, prim_idx in bl2prim:
+            bme.verts[bl_idx].normal = convert_coordinates(normals[prim_idx])
+
+    # Set vertex colors
+    k = 0
+    while 'COLOR_%d' % k in attributes:
+        layer_name = 'COLOR_%d' % k
+        layer = get_layer(bme.loops.layers.color, layer_name)
+
+        colors = op.get('accessor', attributes[layer_name])
+
+        # Old Blender versions only take RGB and new ones only take RGBA
+        if bpy.app.version >= (2, 79, 4): # this bound is not necessarily tight
+            if colors and len(colors[0]) == 3:
+                colors = [color+(1,) for color in colors]
+        else:
+            if colors and len(colors[0]) == 4:
+                print("Your Blender version doesn't support RGBA vertex colors. Upgrade!")
+                colors = [color[:3] for color in colors]
+
+        for bl_idx, prim_idx in bl2prim:
+            for loop in bme.verts[bl_idx].link_loops:
+                loop[layer] = colors[prim_idx]
+
+        k += 1
+
+    # Set texcoords
+    k = 0
+    while 'TEXCOORD_%d' % k in attributes:
+        layer_name = 'TEXCOORD_%d' % k
+        layer = get_layer(bme.loops.layers.uv, layer_name)
+
+        uvs = op.get('accessor', attributes[layer_name])
+
+        for bl_idx, prim_idx in bl2prim:
+            # UV transform
+            u, v = uvs[prim_idx]
+            uv = (u, 1 - v)
+
+            for loop in bme.verts[bl_idx].link_loops:
+                loop[layer].uv = uv
+
+        k += 1
+
+    # Set joints/weights for skinning (multiple sets allow > 4 influences)
+    # TODO: multiple sets are untested!
+    joint_sets = []
+    weight_sets = []
+    k = 0
+    while 'JOINTS_%d' % k in attributes and 'WEIGHTS_%d' % k in attributes:
+        joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % k]))
+        weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % k]))
+        k += 1
+    if joint_sets:
+        layer = get_layer(bme.verts.layers.deform, 'Vertex Weights')
+
+        for joint_set, weight_set in zip(joint_sets, weight_sets):
+            for bl_idx, prim_idx in bl2prim:
+                for j in range(0, 4):
+                    weight = weight_set[prim_idx][j]
+                    if weight != 0.0:
+                        joint = joint_set[prim_idx][j]
+                        bme.verts[bl_idx][layer][joint] = weight
+
+    # Set morph target positions (we don't handle normals/tangents)
+    for k, target in enumerate(primitive.get('targets', [])):
+        if 'POSITION' not in target: continue
+
+        layer = get_layer(bme.verts.layers.shape, 'Morph %d' % k)
+
+        morph_positions = op.get('accessor', target['POSITION'])
+
+        for bl_idx, prim_idx in bl2prim:
+            bme.verts[bl_idx][layer] = convert_coordinates(
+                Vector(positions[prim_idx]) +
+                Vector(morph_positions[prim_idx])
+            )
+
+
+def edges_and_tris(indices, mode):
+    edges = []
+    tris = []
     # TODO: only mode TRIANGLES is tested!!
     if mode == 0:
         # POINTS
@@ -61,7 +283,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         #   2     3
         #  / \   / \
         # 0---1 4---5
-        faces = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
+        tris = [tuple(indices[i:i+3]) for i in range(0, len(indices), 3)]
     elif mode == 5:
         # TRIANGLE STRIP
         #   1---3---5
@@ -70,7 +292,7 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         def alternate(i, xs):
             ccw = i % 2 != 0
             return xs if ccw else (xs[0], xs[2], xs[1])
-        faces = [
+        tris = [
             alternate(i, tuple(indices[i:i+3]))
             for i in range(0, len(indices) - 2)
         ]
@@ -79,261 +301,11 @@ def primitive_to_mesh(op, primitive, name, layers, material_index):
         #   3---2
         #  / \ / \
         # 4---0---1
-        faces = [
+        tris = [
             (indices[0], indices[i], indices[i+1])
             for i in range(1, len(indices) - 1)
         ]
     else:
         raise Exception('primitive mode unimplemented: %d' % mode)
 
-    # Not all the vertices in the accessor are necessarily used. Only those that
-    # the indices reference actually become part of the mesh. So we'll need to
-    # drop the unused ones and consequently relabel the vertices and indices.
-
-    used_vert_idxs = set(indices)
-    # If i is the blender vertex index, bl2gltf[i] is the glTF vertex index
-    # Don't forget to use this when you pick an attribute to assign to certain
-    # Blender vertex!
-    bl2gltf = [i for i, p in enumerate(positions) if i in used_vert_idxs]
-    # If i the glTF vertex index, bl2gltf[i] is the Blender index (or -1 if that
-    # vertex is not used)
-    gltf2bl = [-1] * len(positions)
-    for bl_idx, gltf_idx in enumerate(bl2gltf):
-        gltf2bl[gltf_idx] = bl_idx
-
-    # Put the positions in their Blender order (and convert coordinates while
-    # we're at it)
-    verts = [
-        convert_coordinates(p)
-        for i, p in enumerate(positions) if i in used_vert_idxs
-    ]
-    # Put the topology in terms of Blender idxs
-    edges = [tuple(gltf2bl[x] for x in y) for y in edges]
-    faces = [tuple(gltf2bl[x] for x in y) for y in faces]
-
-    me.from_pydata(verts, edges, faces)
-    me.validate()
-
-
-    # Assign material to each poly
-    for polygon in me.polygons:
-        polygon.material_index = material_index
-
-
-    # Create the caller's requested layers; any layers needed by the attributes
-    # for this mesh will also be created, if they weren't created here, below.
-    for layer, names in layers.items():
-        for name in names:
-            if layer == 'vertex_colors': me.vertex_colors.new(name)
-            if layer == 'uv_layers': me.uv_textures.new(name)
-
-    if 'NORMAL' in attributes:
-        normals = op.get('accessor', attributes['NORMAL'])
-        for i, vertex in enumerate(me.vertices):
-            vertex.normal = convert_coordinates(normals[bl2gltf[i]])
-
-    k = 0
-    while 'COLOR_%d' % k in attributes:
-        layer_name = 'COLOR_%d' % k
-        if layer_name not in me.vertex_colors.keys():
-            me.vertex_colors.new(layer_name)
-        rgba_layer = me.vertex_colors[layer_name].data
-        colors = op.get('accessor', attributes[layer_name])
-
-        # Old Blender versions only take RGB and new ones only take RGBA
-        if bpy.app.version >= (2, 79, 4): # this bound is not necessarily tight
-            if colors and len(colors[0]) == 3:
-                colors = [color+[1] for color in colors]
-        else:
-            if colors and len(colors[0]) == 4:
-                print("your Blender version doesn't support RGBA vertex colors. Upgrade!")
-                colors = [color[:3] for color in colors]
-
-        for polygon in me.polygons:
-            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                rgba_layer[loop_idx].color = colors[bl2gltf[vert_idx]]
-        k += 1
-
-    k = 0
-    while 'TEXCOORD_%d' % k in attributes:
-        layer_name = 'TEXCOORD_%d' % k
-        if layer_name not in me.uv_layers.keys():
-            me.uv_textures.new(layer_name)
-        uvs = op.get('accessor', attributes[layer_name])
-        uv_layer = me.uv_layers[layer_name].data
-        for polygon in me.polygons:
-            for vert_idx, loop_idx in zip(polygon.vertices, polygon.loop_indices):
-                uv = uvs[bl2gltf[vert_idx]]
-                uv_layer[loop_idx].uv = (uv[0], 1 - uv[1])
-        k += 1
-
-
-    # Assign joints/weights. We begin by collecting all the sets (multiple sets
-    # allow for >4 joint influences).
-    # TODO: multiple sets are untested!!
-    joint_sets = []
-    weight_sets = []
-    k = 0
-    while 'JOINTS_%d' % k in attributes and 'WEIGHTS_%d' % k in attributes:
-        joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % k]))
-        weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % k]))
-        k += 1
-    if joint_sets:
-        # Now create vertex groups. The only way I could find to set vertex
-        # groups was by round-tripping through a bmesh.
-        # TODO: find a better way?
-        bme = bmesh.new()
-        bme.from_mesh(me)
-        layer = bme.verts.layers.deform.new('Vertex Weights')
-        for i, vert in enumerate(bme.verts):
-            for joint_set, weight_set in zip(joint_sets, weight_sets):
-                for j in range(0, 4):
-                    if weight_set[i][j] != 0:
-                        vert[layer][joint_set[bl2gltf[i]][j]] = weight_set[bl2gltf[i]][j]
-        bme.to_mesh(me)
-        bme.free()
-
-    # Fill in morph target positions (in Blender, shape keys)
-    # HACK: the only way I could find to add these was to put the mesh in an
-    # object and call shape_key_add.
-    dummy_ob = None
-    for k, target in enumerate(primitive.get('targets', [])):
-        if 'POSITION' not in target: continue
-        morph_positions = op.get('accessor', target['POSITION'])
-
-        if dummy_ob is None:
-            dummy_ob = bpy.data.objects.new('{dummy}', me)
-            dummy_ob.shape_key_add('Basis')
-            me.shape_keys.name = '{dummy}'
-
-        dummy_ob.shape_key_add('Morph Target %d' % k)
-
-        # sigh, another bmesh round-trip...
-        bme = bmesh.new()
-        bme.from_mesh(me)
-        layer = bme.verts.layers.shape['Morph Target %d' % k]
-        for i, vert in enumerate(bme.verts):
-            vert[layer] = (
-                Vector(convert_coordinates(positions[bl2gltf[i]])) +
-                Vector(convert_coordinates(morph_positions[bl2gltf[i]]))
-            )
-        bme.to_mesh(me)
-        bme.free()
-    if dummy_ob:
-        bpy.data.objects.remove(dummy_ob)
-        # Does not seem to be a way to remove the now-unused (?) shape key
-
-
-    me.update()
-
-    return me
-
-
-def create_mesh(op, idx):
-    mesh = op.gltf['meshes'][idx]
-    name = mesh.get('name', 'meshes[%d]' % idx)
-    primitives = mesh['primitives']
-
-    # We'll create temporary meshes for each primitive and merge them using
-    # bmesh.
-
-    # When we merge a mesh with eg. a vertex color layer with one without into
-    # the same bmesh, Blender will drop the vertex color layer. Therefore we
-    # make a pass over the primitives here collecting a list of all the layers
-    # we'll need so we can request they be created for each temporary mesh.
-    layers = {
-        'vertex_colors': set(),
-        'uv_layers': set(),
-    }
-    for primitive in primitives:
-        for kind, accessor_id in primitive['attributes'].items():
-            if kind.startswith('COLOR_'):
-                layers['vertex_colors'].add(kind)
-            if kind.startswith('TEXCOORD_'):
-                layers['uv_layers'].add(kind)
-
-    # Also, if any of the materials used in this mesh use COLOR_0 attributes, we
-    # need to request that that layer be created; else the Attribute node
-    # referencing COLOR_0 in those materials will produce a solid red color. See
-    # material.compute_materials_using_color0, which, note,  must be called
-    # before this function.
-    use_color0 = any(
-        prim.get('material', 'default_material') in op.materials_using_color0
-        for prim in primitives
-    )
-    if use_color0:
-        layers['vertex_colors'].add('COLOR_0')
-
-    # Make a list of all the materials this mesh will need; the material on a
-    # poly is set by giving an index into this list.
-    materials = list(set(
-        op.get('material', primitive.get('material', 'default_material'))
-        for primitive in primitives
-    ))
-
-
-    bme = bmesh.new()
-    for i, primitive in enumerate(mesh['primitives']):
-        blender_material = op.get('material', primitive.get('material', 'default_material'))
-        tmp_mesh = primitive_to_mesh(
-            op,
-            primitive,
-            name=name + '.primitives[i]',
-            layers=layers,
-            material_index=materials.index(blender_material)
-        )
-        bme.from_mesh(tmp_mesh)
-        bpy.data.meshes.remove(tmp_mesh)
-
-
-    me = bpy.data.meshes.new(name)
-
-    # Create a shape key to hold any morph target data (same hack as above)
-    dummy_ob = None
-    morph_target_indices = [
-        i
-        for i, t in enumerate(mesh['primitives'][0].get('targets', []))
-        if 'POSITION' in t
-    ]
-    if morph_target_indices:
-        dummy_ob = bpy.data.objects.new('{dummy}', me)
-        dummy_ob.shape_key_add('Basis')
-        me.shape_keys.name = name
-        for i in morph_target_indices:
-            dummy_ob.shape_key_add('Morph Target %d' % i)
-
-    bme.to_mesh(me)
-    bme.free()
-
-    if dummy_ob:
-        bpy.data.objects.remove(dummy_ob)
-
-    # Fill in default morph target weights
-    if 'weights' in mesh:
-        for i in morph_target_indices:
-            me.shape_keys.key_blocks['Morph Target %i' % i].value = mesh['weights'][i]
-
-    # Fill in the material list (we can't do me.materials = materials since this
-    # property is read-only).
-    for material in materials:
-        me.materials.append(material)
-
-    if op.smooth_polys:
-        for polygon in me.polygons:
-            polygon.use_smooth = True
-
-    me.update()
-
-    if not morph_target_indices:
-        return me
-    else:
-        # Tell op.get not to cache us if we have morph targets; this is because
-        # morph target weights are stored on the mesh instance in glTF, what
-        # would be on the object in Blender. But in Blender shape keys are part
-        # of the mesh. So when an object wants a mesh with morph targets, it
-        # always needs to get a new one. Ergo we lose sharing for meshes with
-        # morph targets.
-        return {
-            'result': me,
-            'do_not_cache_me': True,
-        }
+    return edges, tris

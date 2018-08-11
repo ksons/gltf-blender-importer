@@ -331,7 +331,7 @@ def add_shape_key_action(op, anim_id, node_id, curve):
     num_targets = len(mesh['primitives'][0]['targets'])
 
     for i in range(0, num_targets):
-        data_path = 'key_blocks[%s].value' % quote('Morph Target %d' % i)
+        data_path = 'key_blocks[%s].value' % quote('Morph %d' % i)
         fcurve = action.fcurves.new(data_path=data_path)
         fcurve.keyframe_points.add(len(curve['input']))
 
