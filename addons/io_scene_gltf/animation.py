@@ -66,20 +66,26 @@ def add_animation(op, anim_id):
         input = op.get('accessor', sampler['input'])
         output = op.get('accessor', sampler['output'])
         interpolation = sampler.get('interpolation', 'LINEAR')
-        if interpolation not in ['LINEAR', 'STEP', 'CUBICSPLINE']:
-            print('unknown interpolation: %s', interpolation)
-            continue
 
         if interpolation == 'CUBICSPLINE':
             # TODO: not supported; for now drop the tangents and switch to LINEAR
             # TODO: this work-around is also UNTESTED :)
             output = [output[i] for i in range(1, len(output, 3))]
-            interpolation = 'LINEAR'
+            bl_interpolation = 'LINEAR'
+        elif interpolation == 'STEP':
+            bl_interpolation = 'CONSTANT'
+        elif interpolation == 'LINEAR':
+            bl_interpolation = 'LINEAR'
+        else:
+            print('unknown interpolation: %s', interpolation)
+            bl_interpolation = 'LINEAR'
+
 
         node_curves.setdefault(node_id, {})[path] = {
             'input': input,
             'output': output,
             'interpolation': interpolation,
+            'bl_interpolation': bl_interpolation,
         }
 
     for node_id, curves in node_curves.items():
@@ -102,8 +108,10 @@ def add_action(op, animation_id, node_id, curves):
     name += '@' + blender_object.name
 
     action = bpy.data.actions.new(name)
+    action.use_fake_user = True
 
-    if blender_object.animation_data is None:
+    # Play the first animation by default
+    if animation_id == 0:
         blender_object.animation_data_create().action = action
 
     # The values in the glTF curve are the same (excepting the change of
@@ -111,15 +119,22 @@ def add_action(op, animation_id, node_id, curves):
     # through.
 
     triples = [
-        # (glTF path name, Blender path name, number of components)
-        ('translation', 'location', 3),
-        ('rotation', 'rotation_quaternion', 4),
-        ('scale', 'scale', 3)
+        # (glTF path name, Blender path name, group name, number of components)
+        ('translation', 'location', 'Location', 3),
+        ('rotation', 'rotation_quaternion', 'Rotation', 4),
+        ('scale', 'scale', 'Scale', 3)
     ]
-    for target, data_path, num_components in triples:
+    for target, data_path, group_name, num_components in triples:
         if target in curves:
             curve = curves[target]
             convert = CONVERT_FNS[target]
+
+
+            ordinates = curve['output']
+            if target == 'rotation' and curve['interpolation'] == 'LINEAR':
+                ordinates = shorten_quaternion_paths(ordinates)
+
+            group = action.groups.new(group_name)
 
             # Create an fcurve for each component (eg. xyz) and then loop over
             # the curve's points, filling in each fcurve with the corresponding
@@ -135,13 +150,13 @@ def add_action(op, animation_id, node_id, curves):
 
             for fcurve in fcurves:
                 fcurve.keyframe_points.add(len(curve['input']))
+                fcurve.group = group
 
-            # TODO: set interpolation
-
-            for k, (t, y) in enumerate(zip(curve['input'], curve['output'])):
+            for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
                 y = convert(y)
                 for i, fcurve in enumerate(fcurves):
+                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
                     fcurve.keyframe_points[k].co = [frame, y[i]]
 
             for fcurve in fcurves:
@@ -161,14 +176,17 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
         name = op.gltf['animations'][anim_id].get('name', 'animations[%d]' % anim_id)
         name += '@' + armature_vnode['blender_armature'].name
         action = bpy.data.actions.new(name)
-        action_cache[anim_id] = bpy.data.actions.new(name)
-        if armature_vnode['blender_armature'].animation_data is None:
-            armature_vnode['blender_armature'].animation_data_create().action = action
+        action_cache[anim_id] = action
+        action.use_fake_user = True
+
+        # Play the first animation by default
+        if anim_id == 0:
+            bl_object = armature_vnode['blender_object']
+            bl_object.animation_data_create().action = action
 
     action = action_cache[anim_id]
 
 
-    rest_trs = bone_vnode['trs']
 
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be
@@ -182,8 +200,6 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     #    pose_trs = sample_blender_fcurve()
     #    final_trs = rest_trs * pose_trs
     #
-    # (TODO: is that order of multiplication correct?)
-    #
     # So we need to compute a value for pose_trs that gives the specified final
     # position.
     #
@@ -193,6 +209,17 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     #             = (rr^{-1} (-rt)) rr^{-1} ft fr fs
     #             = (rr^{-1} (-rt + ft)) rr^{-1} fr fs
     #             = (        pt        ) (   pr   ) ps
+    #
+    #
+    # To this is added the consideration that we allow the user to choose a
+    # rotation for bones (to allow them to get them to point in the "natural"
+    # way for Blender), hence both the rest_trs and the final_trs and
+    # premultiplied by the bone rotation, q. (TODO: check this paragraph??)
+
+    t, r, s = bone_vnode['trs']
+    q = op.bone_rotation.to_quaternion()
+    r = r * q
+    rest_trs = (t, r, s)
 
     # Here we only compute the ordinates of the new pose curves. The time
     # domains are the same as for the final curves.
@@ -206,16 +233,20 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
         ]
     if 'rotation' in curves:
         pose_ordinates['rotation'] = [
-            inverse_rest_rot * convert_rotation(fr)
+            inverse_rest_rot * convert_rotation(fr) * q
             for fr in curves['rotation']['output']
         ]
     if 'scale' in curves:
+        # TODO: we probably need some correction when the scaling is non-uniform
+        # and q is not 1
         pose_ordinates['scale'] = [
             convert_scale(fs) for fs in curves['scale']['output']
         ]
 
     bone_name = bone_vnode['blender_name']
     base_path = 'pose.bones[%s]' % quote(bone_name)
+
+    group = action.groups.new(bone_name)
 
     triples = [
         # (glTF path name, Blender path name, number of components)
@@ -228,20 +259,42 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
             curve = curves[target]
             ordinates = pose_ordinates[target]
 
+            if target == 'rotation' and curve['interpolation'] == 'LINEAR':
+                ordinates = shorten_quaternion_paths(ordinates)
+
             fcurves = [
-                action.fcurves.new(data_path=base_path + data_path, index=i)
+                action.fcurves.new(data_path=base_path + '.' + data_path, index=i)
                 for i in range(0, num_components)
             ]
 
             for fcurve in fcurves:
                 fcurve.keyframe_points.add(len(curve['input']))
-
-            # TODO: set interpolation
+                fcurve.group = group
 
             for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
                 frame = t * op.framerate
                 for i, fcurve in enumerate(fcurves):
+                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
                     fcurve.keyframe_points[k].co = [frame, y[i]]
 
             for fcurve in fcurves:
                 fcurve.update()
+
+
+def shorten_quaternion_paths(qs):
+    """
+    Given a list of quaternions, return a list of quaternions which produce the
+    same rotations but where each element is always the closest quaternion to
+    its predecessor.
+
+    Applying this to the ordinates of a curve ensure rotation always takes the
+    "shortest path". See glTF issue #1395.
+    """
+    # Also note: it does not matter if you apply this before or after coordinate
+    # conversion :)
+    res = []
+    if qs: res.append(qs[0])
+    for i in range(1, len(qs)):
+        q = Quaternion(qs[i])
+        res.append(-q if q.dot(res[-1]) < 0 else q)
+    return res
