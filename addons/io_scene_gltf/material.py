@@ -102,6 +102,18 @@ def create_material_from_properties(op, material, material_name, use_color0):
     if alpha_mode == 'MASK':
         g.inputs['AlphaMode'].default_value = 1.0
 
+    # This is only used in the Material view
+    game_alpha_mode = {
+        'OPAQUE': 'OPAQUE',
+        'MASK': 'CLIP',
+        'BLEND': 'ALPHA',
+    }.get(alpha_mode, 'OPAQUE')
+    if not material.get('doubleSided', False) and game_alpha_mode == 'OPAQUE':
+        # Culling is emulated by making backfacing faces transparent, so we need
+        # to enable alpha to get that to work
+        game_alpha_mode = 'CLIP'
+    mat.game_settings.alpha_blend = game_alpha_mode
+
 
     # Now wire up constant (ie. non-texture) material properties
     def set_value(obj, key, input_name, mog=lambda x: x):
@@ -137,7 +149,7 @@ def create_material_from_properties(op, material, material_name, use_color0):
         if prop_name in obj and input_name in g.inputs
     ]
 
-    # We'll lin the texture nodes up in a vertical column centered on g
+    # We'll line the texture nodes up in a vertical column centered on g
     x = g.location[0] - 480
     y = g.location[1] + (len(textures) * 300 + (len(textures) - 1) * 10) / 2 - 300
     y_step = -310
