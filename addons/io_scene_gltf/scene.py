@@ -132,30 +132,35 @@ def create_vforest(op):
             vnode['children'].append(child_vnode)
 
 
-    # Insert armatures for the skins between the root of the skin and their
-    # parent (if any).
+    # Insert enough armatures so that every node which is a joint of some skin
+    # becomes a descendant of an armture.
     skins = op.gltf.get('skins', [])
     for skin_id, skin in enumerate(skins):
 
         if 'skeleton' not in skin:
-            # Find the root of the tree that contains the joints (presumably
-            # they must all be in the same tree)
-            vnode = id_to_vnode[skin['joints'][0]]
-            while vnode['parent']: vnode = vnode['parent']
-            skeleton_root = vnode
+            vnodes = [id_to_vnode[joint_id] for joint_id in skin['joints']]
+            skeleton_roots = lowest_common_ancestors(vnodes)
         else:
-            skeleton_root = id_to_vnode[skin['skeleton']]
+            # TODO: not sure the spec actually guarantees that the
+            # skin['skeleton'] node will be an (improper) ancestor of the
+            # joints... could always use the other branch...
+            skeleton_roots = [id_to_vnode[skin['skeleton']]]
 
-        def insert_parent(vnode, parent):
-            old_parent = vnode['parent']
-            vnode['parent'] = parent
-            parent['children'].append(vnode)
-            if old_parent:
-                pos = old_parent['children'].index(vnode)
-                old_parent['children'][pos] = parent
-                parent['parent'] = old_parent
-            else:
-                parent['parent'] = None
+        def insert_parent(vnodes, parent):
+            # If there is one vnode, inserts parent between it and its parent.
+            # Otherwise, vnodes must all be roots and inserts parent as their
+            # common parent.
+            for vnode in vnodes:
+                old_parent = vnode['parent']
+                vnode['parent'] = parent
+                parent['children'].append(vnode)
+                if old_parent:
+                    assert(len(vnodes) == 1)
+                    pos = old_parent['children'].index(vnode)
+                    old_parent['children'][pos] = parent
+                    parent['parent'] = old_parent
+                else:
+                    parent['parent'] = None
 
         armature = {
             'name': skin.get('name', 'skins[%d]' % skin_id),
@@ -165,7 +170,7 @@ def create_vforest(op):
             'parent': None,
         }
         vnodes.append(armature)
-        insert_parent(skeleton_root, armature)
+        insert_parent(skeleton_roots, armature)
 
 
     # Mark all the children of armatures as bones and delete any armatures that
@@ -483,10 +488,13 @@ def get_trs(node):
     return (Vector(loc), Quaternion(rot), Vector(sca))
 
 
-def link_tree(scene, vnode):
-    """Link all the Blender objects under vnode into the given Blender scene."""
+def link_vnode(scene, vnode):
     if 'blender_object' in vnode:
         scene.objects.link(vnode['blender_object'])
+
+def link_tree(scene, vnode):
+    """Link all the Blender objects under vnode into the given Blender scene."""
+    link_vnode(scene, vnode)
     for child in vnode['children']:
         link_tree(scene, child)
 
@@ -515,12 +523,70 @@ def link_forest_into_scenes(op):
             for node_id in roots:
                 vnode = op.id_to_vnode[node_id]
 
-                # A root glTF node isn't necessarily a root vnode.
-                # Find the real root.
-                while vnode['parent']: vnode = vnode['parent']
+                # A root glTF node isn't necessarily a root vnode. There might
+                # be an armature above it.
+                if 'armature_vnode' in vnode:
+                    link_vnode(blender_scene, vnode['armature_vnode'])
 
                 link_tree(blender_scene, vnode)
 
                 # Select this scene if it is the default
                 if i == default_scene_id:
                     bpy.context.screen.scene = blender_scene
+
+
+def lowest_common_ancestors(vnodes):
+    # Compute the lowest common ancestors of vnodes, if they are all in the same
+    # tree, or the list of roots of the trees which contain them, if they are
+    # not.
+
+    assert(vnodes)
+
+    def ancestors(vnode):
+        # Returns the chain of all ancestors of a vnode. The roots of the tree it
+        # is in the first element and vnode itself is the last.
+        chain = []
+        while vnode:
+            chain.append(vnode)
+            vnode = vnode['parent']
+        chain.reverse()
+        return chain
+
+    def first_difference(chain1, chain2):
+        # Returns the index of the first difference in two chains, or None if
+        # one is a prefix of the other.
+        i = 0
+        while True:
+            if i == len(chain1) or i == len(chain2):
+                return None
+            if chain1[i] != chain2[i]:
+                return i
+            i += 1
+
+    # Used when the vnodes belong to multiple trees; list of roots of all the
+    # trees
+    multiple = []
+    # Used when they belong to the same tree; ancestor chain for the current
+    # lowest common ancestor
+    lowest = ancestors(vnodes[0])
+
+    for vnode in vnodes[1:]:
+        current = ancestors(vnode)
+        if multiple:
+            if current[0] not in multiple:
+                multiple.append(current[0])
+        else:
+            d = first_difference(lowest, current)
+            if d is None:
+                if len(current) < len(lowest):
+                    lowest = current
+            elif d == 0:
+                # Their roots differ: switch to multiple mode
+                multiple += [lowest[0], current[0]]
+            else:
+                lowest = lowest[:d]
+
+    if multiple:
+        return multiple
+    else:
+        return [lowest[-1]]
