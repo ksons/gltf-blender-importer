@@ -42,11 +42,6 @@ def create_mesh(op, idx):
     bme.free()
 
 
-    # Fill in default morph target weights
-    if 'weights' in mesh and me.shape_keys:
-        for i, weight in enumerate(mesh['weights']):
-            me.shape_keys.key_blocks['Morph %i' % i].value = weight
-
     # Fill in the material list (we can't do me.materials = materials since this
     # property is read-only).
     for material in materials:

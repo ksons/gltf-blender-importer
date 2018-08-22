@@ -1,7 +1,7 @@
 import json, os, struct
 
 import bpy
-from bpy.props import StringProperty, BoolProperty, FloatProperty
+from bpy.props import StringProperty, BoolProperty, FloatProperty, EnumProperty
 from bpy_extras.io_utils import ImportHelper
 from mathutils import Euler
 
@@ -33,6 +33,8 @@ EXTENSIONS = set((
 ))
 
 
+def trip(x): return (x, x, x)
+
 class ImportGLTF(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.gltf'
     bl_label = 'Import glTF'
@@ -59,29 +61,22 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'disabling for low-res models.',
         default=True,
     )
-    bone_rotation_x = FloatProperty(
-        name='Bone Rotation X',
-        description='',
-        default=0.0,
-        step=100,
-        subtype='ANGLE',
-        unit='ROTATION',
-    )
-    bone_rotation_y = FloatProperty(
-        name='Bone Rotation Y',
-        description='',
-        default=0.0,
-        step=100,
-        subtype='ANGLE',
-        unit='ROTATION',
-    )
-    bone_rotation_z = FloatProperty(
-        name='Bone Rotation Z',
-        description='',
-        default=0.0,
-        step=100,
-        subtype='ANGLE',
-        unit='ROTATION',
+    bone_axis = EnumProperty(
+        items=[
+            trip('+X'),
+            trip('-X'),
+            trip('+Y'),
+            trip('-Y'),
+            trip('+Z'),
+            trip('-Z'),
+        ],
+        name='+Y to',
+        description=
+            'If bones point the wrong way with the default value, enable '
+            '"Display > Axes" for the Armature and look in Edit mode. '
+            'You\'ll see that bones point along the local +Y axis. Decide '
+            'which local axis they should point along and put it here.',
+        default='+Y',
     )
     import_animations = BoolProperty(
         name='Import Animations (EXPERIMENTAL)',
@@ -121,11 +116,9 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col.prop(self, 'smooth_polys')
 
         col = layout.box().column()
-        col.label('Bones:', icon='BONE_DATA')
+        col.label('Bone Rotation:', icon='BONE_DATA')
         col.label('(Tweak if bones point wrong)')
-        col.prop(self, 'bone_rotation_x')
-        col.prop(self, 'bone_rotation_y')
-        col.prop(self, 'bone_rotation_z')
+        col.prop(self, 'bone_axis')
 
         col = layout.box().column()
         col.label('Animation:', icon='OUTLINER_DATA_POSE')
@@ -253,12 +246,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.smooth_polys = keywords['smooth_polys']
         self.import_animations = keywords['import_animations']
         self.framerate = keywords['framerate']
-        self.bone_rotation = Euler([
-            keywords['bone_rotation_x'],
-            keywords['bone_rotation_y'],
-            keywords['bone_rotation_z'],
-        ])
-
+        self.bone_axis = keywords['bone_axis']
 
 
 CREATE_FNS = {

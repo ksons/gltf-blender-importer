@@ -191,61 +191,65 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     action = action_cache[anim_id]
 
 
-
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be
     #
-    #    final_trs = sample_gltf_curve()
+    #     true_trs = sample_gltf_curve()
     #
     # But in Blender, when handling bones, you don't animate the bone directly
     # like this, you animate a "pose bone", and the final position is computed
-    # as
+    # relative to the rest position as
     #
-    #    pose_trs = sample_blender_fcurve()
-    #    final_trs = rest_trs * pose_trs
+    #     pose_trs = sample_blender_curve()
+    #     final_trs = rest_tr * pose_trs
     #
-    # So we need to compute a value for pose_trs that gives the specified final
-    # position.
+    # So we need to compute a value for pose_trs that gives the correct
+    # final_trs. As discussed in vforest.py this correct value is actually not
+    # just true_trs but
     #
-    #    pose_trs = rest_trs^{-1} * final_trs
-    #             = (rt rr)^{-1} (ft fr fs)   [assuming rest scale is 1]
-    #             = rr^{-1} (-rt) ft fr fs
-    #             = (rr^{-1} (-rt)) rr^{-1} ft fr fs
-    #             = (rr^{-1} (-rt + ft)) rr^{-1} fr fs
-    #             = (        pt        ) (   pr   ) ps
+    #     final_trs = Rot[postr] (true trs) Rot[prer]
     #
+    # where postr and prer are per-bone rotations that let us customize the way
+    # bones point. Working this out gives
     #
-    # To this is added the consideration that we allow the user to choose a
-    # rotation for bones (to allow them to get them to point in the "natural"
-    # way for Blender), hence both the rest_trs and the final_trs and
-    # premultiplied by the bone rotation, q. (TODO: check this paragraph??)
+    #     pose_trs =
+    #     rest_trs^{-1} * final_trs =
+    #     (Trans[rt] Rot[rr])^{-1} (Rot[postr] Trans[tt] Rot[tr] Scale[ts] Rot[prer]) =
+    #     Rot[rr^{-1}] Trans[-rt] Trans[Rot[postr] tt] Rot[postr] Rot[tr] Rot[prer] Scale[ts'] =
+    #     Rot[rr^{-1}] Trans[-rt + Rot[postr] tt] Rot[postr * tr * prer] Scale[ts'] =
+    #     Trans[Rot[rr^{-1}] (-rt + Rot[postr] tt)] Rot[rr^{-1} * postr * tr * prer] Scale[ts'] =
+    #     Trans[               pt                 ] Rot[             pr            ] Scale[ps ]
+    #
+    # where ts' is computed by computed by permuting ts, again see vforest.py.
 
-    t, r, s = bone_vnode['trs']
-    q = op.bone_rotation.to_quaternion()
-    r = r * q
-    rest_trs = (t, r, s)
+    rest_t, rest_r = bone_vnode['bone_tr']
+    post_r = bone_vnode.get('bone_post_rotate', Quaternion((1, 0, 0, 0)))
+    pre_r = bone_vnode.get('bone_pre_rotate', Quaternion((1, 0, 0, 0)))
 
     # Here we only compute the ordinates of the new pose curves. The time
     # domains are the same as for the final curves.
-    inverse_rest_rot = rest_trs[1].conjugated()
+    inv_rest_r = rest_r.conjugated()
+    inv_rest_r_mat = inv_rest_r.to_matrix()
+    post_r_mat = post_r.to_matrix()
     pose_ordinates = {}
     if 'translation' in curves:
-        inverse_rest_rot_mat = inverse_rest_rot.to_matrix()
         pose_ordinates['translation'] = [
-            inverse_rest_rot_mat * (-rest_trs[0] + convert_translation(ft))
+            inv_rest_r_mat * (-rest_t + post_r_mat * convert_translation(ft))
             for ft in curves['translation']['output']
         ]
     if 'rotation' in curves:
         pose_ordinates['rotation'] = [
-            inverse_rest_rot * convert_rotation(fr) * q
+            inv_rest_r * post_r * convert_rotation(fr) * pre_r
             for fr in curves['rotation']['output']
         ]
     if 'scale' in curves:
-        # TODO: we probably need some correction when the scaling is non-uniform
-        # and q is not 1
+        perm = bone_vnode['bone_pre_perm']
+        def permute(s):
+            return Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
         pose_ordinates['scale'] = [
-            convert_scale(fs) for fs in curves['scale']['output']
+            permute(convert_scale(fs)) for fs in curves['scale']['output']
         ]
+
 
     bone_name = bone_vnode['blender_name']
     base_path = 'pose.bones[%s]' % quote(bone_name)
@@ -308,7 +312,10 @@ def shorten_quaternion_paths(qs):
 def add_shape_key_action(op, anim_id, node_id, curve):
     # We have to create a separate action for animating shape keys.
     animation = op.gltf['animations'][anim_id]
-    blender_object = op.mesh_instance_to_vnode[node_id]['blender_object']
+    vnode = op.id_to_vnode[node_id]
+    if 'mesh_instance_moved_to' in vnode:
+        vnode = vnode['mesh_instance_moved_to']
+    blender_object = vnode['blender_object']
 
     if not blender_object.data.shape_keys:
         # Can happen if the mesh has only non-POSITION morph targets so we
