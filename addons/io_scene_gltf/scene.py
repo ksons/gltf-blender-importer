@@ -76,7 +76,7 @@ def realize_vforest(op):
             bone.use_connect = False
 
             bone.head = vnode['bone_head']
-            bone.tail = bone.head + vnode['bone_vec']
+            bone.tail = vnode['bone_tail']
             bone.align_roll(vnode['bone_align'])
 
             vnode['blender_editbone'] = bone

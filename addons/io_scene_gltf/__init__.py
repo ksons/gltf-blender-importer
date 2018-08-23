@@ -61,11 +61,23 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'disabling for low-res models.',
         default=True,
     )
-    bone_axis = EnumProperty(
+    bone_rotation = EnumProperty(
+        items=[
+            ('NONE', 'Don\'t change', ''),
+            ('GUESS', 'Choose for me', ''),
+            ('MANUAL', 'Choose manually', ''),
+        ],
+        name='Axis',
+        description=
+            'Adjusts which local axis bones should point along. The axis they '
+            'points along is always +Y. This option lets you rotate them so another '
+            'axis becomes +Y.',
+        default='GUESS',
+    )
+    bone_rotation_axis = EnumProperty(
         items=[
             trip('+X'),
             trip('-X'),
-            trip('+Y'),
             trip('-Y'),
             trip('+Z'),
             trip('-Z'),
@@ -76,7 +88,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             '"Display > Axes" for the Armature and look in Edit mode. '
             'You\'ll see that bones point along the local +Y axis. Decide '
             'which local axis they should point along and put it here.',
-        default='+Y',
+        default='+Z',
     )
     import_animations = BoolProperty(
         name='Import Animations (EXPERIMENTAL)',
@@ -116,9 +128,11 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col.prop(self, 'smooth_polys')
 
         col = layout.box().column()
-        col.label('Bone Rotation:', icon='BONE_DATA')
+        col.label('Bones:', icon='BONE_DATA')
         col.label('(Tweak if bones point wrong)')
-        col.prop(self, 'bone_axis')
+        col.prop(self, 'bone_rotation')
+        if self.as_keywords()['bone_rotation'] == 'MANUAL':
+            col.prop(self, 'bone_rotation_axis')
 
         col = layout.box().column()
         col.label('Animation:', icon='OUTLINER_DATA_POSE')
@@ -246,7 +260,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.smooth_polys = keywords['smooth_polys']
         self.import_animations = keywords['import_animations']
         self.framerate = keywords['framerate']
-        self.bone_axis = keywords['bone_axis']
+        self.bone_rotation = keywords['bone_rotation']
+        self.bone_rotation_axis = keywords['bone_rotation_axis']
 
 
 CREATE_FNS = {

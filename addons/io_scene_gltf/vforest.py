@@ -219,8 +219,66 @@ def insert_armatures(op):
 # (the case where the scalings are at least uniform seems a bit easier). We
 # currently warn if a rest scaling is not 1 and just pretend that it was.
 def adjust_bones(op):
-    # Compute the pre-rotation and its underlying permutation that will make
-    # op.bone_axis the direction bones point.
+    # In the first pass, compute the true_TRS without any pre-rotation, etc. The
+    # pre-rotations don't affect the bone heads (ie. the image of the origin
+    # under the local-to-arma transform) so we can compute them now.
+    def visit1(vnode):
+        t, r, s = vnode['trs']
+
+        # Mark this so we can print a warning later
+        if any(abs(s[i] - 1) > 0.05 for i in range(0, 3)):
+            vnode['bone_had_nonunit_scale'] = True
+
+        vnode['bone_tr'] = [t, r]
+
+        # Blender specifies bones in a weird way; you don't give their
+        # local-to-parent transform like for regular objects, you basically give
+        # their armature space positions. So we start by computing their
+        # local-to-arma matrix.
+        mat = vnode['parent'].get('bone_mat', Matrix.Identity(4))
+        mat = mat * Matrix.Translation(t) * r.to_matrix().to_4x4()
+        vnode['bone_mat'] = mat
+
+        vnode['bone_head'] = mat * Vector((0, 0, 0))
+
+        for child in vnode['children']:
+            visit1(child)
+
+    for arma_vnode in op.armature_vnodes:
+        for child in arma_vnode['children']:
+            visit1(child)
+
+    # The second pass pass computes a length for each bone, ideally the distance
+    # from its head to its (first) child. Bone lengths don't affect the bone's
+    # TRS transform.
+    def compute_lengths(vnode):
+        bone_length = 1
+        if 'bone_length' in vnode['parent']:
+            bone_length = vnode['parent']['bone_length']
+        for child in vnode['children']:
+            if child['type'] == 'BONE':
+                dist = (vnode['bone_head'] - child['bone_head']).length
+                if dist != 0:
+                    bone_length = dist
+                    break
+        vnode['bone_length'] = bone_length # record it for our children
+
+        for child in vnode['children']:
+            compute_lengths(child)
+
+    for arma_vnode in op.armature_vnodes:
+        for child in arma_vnode['children']:
+            compute_lengths(child)
+
+    # Figure out what pre-rotation to use
+    if op.bone_rotation == 'NONE':
+        axis = '+Y'
+    elif op.bone_rotation == 'GUESS':
+        axis = guess_bone_axis(op)
+    elif op.bone_rotation == 'MANUAL':
+        axis = op.bone_rotation_axis
+    else:
+        assert(False)
     euler = {
         '-X': Euler([0, 0, pi/2]),
         '+X': Euler([0, 0, -pi/2]),
@@ -228,8 +286,11 @@ def adjust_bones(op):
         '+Y': Euler([0, 0, 0]),
         '-Z': Euler([-pi/2, 0, 0]),
         '+Z': Euler([pi/2, 0, 0]),
-    }[op.bone_axis]
+    }[axis]
     pre_rotate = euler.to_quaternion()
+    pre_rotate_mat = euler.to_matrix().to_4x4()
+
+    # The permuation that the pre-rotation does to the basis vectors
     pre_perm = {
         '-X': [1, 0, 2],
         '+X': [1, 0, 2],
@@ -237,9 +298,11 @@ def adjust_bones(op):
         '+Y': [0, 1, 2],
         '-Z': [0, 2, 1],
         '+Z': [0, 2, 1],
-    }[op.bone_axis]
+    }[axis]
 
-    def visit1(vnode):
+    # In the third and final pass, we use the pre-rotations to find the bone
+    # tails and update the bone TR.
+    def visit3(vnode):
         t, r, s = vnode['trs']
         if 'bone_post_rotate' in vnode:
             post_rotate = vnode['bone_post_rotate']
@@ -251,57 +314,64 @@ def adjust_bones(op):
         for child in vnode['children']:
             child['bone_post_rotate'] = pre_rotate.conjugated()
 
-        # Mark this so we can print a warning later
-        if any(abs(s[i] - 1) > 0.05 for i in range(0, 3)):
-            vnode['bone_had_nonunit_scale'] = True
-
-        vnode['bone_tr'] = (t, r)
-
         # Compute s'
         vnode['bone_pose_s'] = Vector((s[pre_perm[0]], s[pre_perm[1]], s[pre_perm[2]]))
 
-        # Blender specifies bones in a weird way; you don't give their
-        # local-to-parent transform like for regular objects, you basically give
-        # their armature space positions. So we start by computing their
-        # local-to-arma matrix.
-        mat = vnode['parent'].get('bone_mat', Matrix.Identity(4))
-        mat = mat * Matrix.Translation(t) * r.to_matrix().to_4x4()
-        vnode['bone_mat'] = mat
+        vnode['bone_mat'] *= pre_rotate_mat
+        vnode['bone_tr'] = t, r
 
-        vnode['bone_head'] = mat * Vector((0, 0, 0))
-        vnode['bone_vec'] = mat * Vector((0, 1, 0)) - vnode['bone_head']
-        vnode['bone_align'] = mat * Vector((0, 0, 1)) - vnode['bone_head']
+        vnode['bone_tail'] = vnode['bone_mat'] * Vector((0, vnode['bone_length'], 0))
+        vnode['bone_align'] = vnode['bone_mat'] * Vector((0, 0, 1)) - vnode['bone_head']
 
         for child in vnode['children']:
-            visit1(child)
+            visit3(child)
 
     for arma_vnode in op.armature_vnodes:
         for child in arma_vnode['children']:
-            visit1(child)
+            visit3(child)
 
+def guess_bone_axis(op):
+    # This function guesses which local axis bones should point along in this
+    # way: all the bones that have one child cast a vote for whichever axis (if
+    # any) points from their head to their child's head. If any axis gets a
+    # majority vote, that's the axis we use. Otherwise, we use the default +Y
+    # axis.
+    votes = {}
+    voters = [0]
+    axes = {
+        '-X': Vector((-1,  0,  0)),
+        '+X': Vector(( 1,  0,  0)),
+        '-Y': Vector(( 0, -1,  0)),
+        '-Z': Vector(( 0,  0, -1)),
+        '+Z': Vector(( 0,  0,  1)),
+    }
+    def visit2(vnode):
+        if len(vnode['children']) == 1:
+            child = vnode['children'][0]
+            dist = (child['bone_head'] - vnode['bone_head']).length
+            if dist >= 0.005: # only if the heads are not incident
+                voters[0] += 1
+                for key, axis in axes.items():
+                    tail = vnode['bone_mat'] * (dist * axis)
+                    if (tail - child['bone_head']).length < 0.1 * dist:
+                        votes.setdefault(key, 0)
+                        votes[key] += 1
+                        break
 
-    def compute_lengths(vnode):
-        # Chose a length for the bone. The best one is so that its tail
-        # meets the head of its (first) child, but fallback to the length of
-        # its parent (if no children), or 1 (if no parent).
-        bone_length = 1
-        if 'bone_length' in vnode['parent']:
-            bone_length = vnode['parent']['bone_length']
         for child in vnode['children']:
-            if child['type'] == 'BONE':
-                dist = (vnode['bone_head'] - child['bone_head']).length
-                if dist != 0:
-                    bone_length = dist
-                    break
-        vnode['bone_length'] = bone_length # record it for our children
-        vnode['bone_vec'] *= bone_length
-
-        for child in vnode['children']:
-            compute_lengths(child)
+            visit2(child)
 
     for arma_vnode in op.armature_vnodes:
         for child in arma_vnode['children']:
-            compute_lengths(child)
+            visit2(child)
+
+    for key, vote_count in votes.items():
+        if vote_count > voters[0] // 2:
+            print('Guessing bones should point along', key, '...')
+            return key
+
+    # No majority; don't use a rotation
+    return '+Y'
 
 
 # A Blender object can contain only one datum (eg. a mesh, a camera, etc.) and a
