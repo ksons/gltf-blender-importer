@@ -5,7 +5,7 @@ from bpy.props import StringProperty, BoolProperty, FloatProperty, EnumProperty
 from bpy_extras.io_utils import ImportHelper
 from mathutils import Euler
 
-from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups
+from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups, light
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
@@ -26,6 +26,7 @@ GLTF_VERSION = (2, 0)
 
 # Supported extensions
 EXTENSIONS = set((
+    'KHR_lights_punctual', # tentative until stabilized
     'KHR_materials_pbrSpecularGlossiness',
     'KHR_materials_unlit',
     'KHR_texture_transform',
@@ -273,6 +274,7 @@ CREATE_FNS = {
     'node_group': node_groups.create_group,
     'mesh': mesh.create_mesh,
     'camera': camera.create_camera,
+    'light': light.create_light,
 }
 
 # Add to a menu

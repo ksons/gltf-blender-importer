@@ -23,19 +23,19 @@ def realize_vforest(op):
             data = None
             if 'mesh_instance' in vnode:
                 inst = vnode['mesh_instance']
-
                 data = op.get('mesh', inst['mesh'])
-
                 # Set instance's morph target weights
                 if inst['weights'] and data.shape_keys:
                     keyblocks = data.shape_keys.key_blocks
                     for i, weight in enumerate(inst['weights']):
                         if ('Morph %d' % i) in keyblocks:
                             keyblocks['Morph %d' % i].value = weight
-
             elif 'camera_instance' in vnode:
                 inst = vnode['camera_instance']
                 data = op.get('camera', inst['camera'])
+            elif 'light_instance' in vnode:
+                inst = vnode['light_instance']
+                data = op.get('light', inst['light'])
 
             ob = bpy.data.objects.new(vnode['name'], data)
             vnode['blender_object'] = ob

@@ -52,6 +52,10 @@ def init(op):
             vnode['camera_instance'] = {
                 'camera': node['camera'],
             }
+        if 'KHR_lights_punctual' in node.get('extensions', {}):
+            vnode['light_instance'] = {
+                'light': node['extensions']['KHR_lights_punctual']['light'],
+            }
 
         op.id_to_vnode[id] = vnode
         op.vnodes.append(vnode)
@@ -421,6 +425,13 @@ def adjust_instances(op):
             # the -Y axis (in Blender coordinates)
             x_rot = Quaternion((2**(1/2), 2**(1/2), 0, 0))
             r *= x_rot
+        elif inst_kind == 'light_instance':
+            id = inst['light']
+            lights = op.gltf['extenions']['KHR_lights_punctual']['lights']
+            name = lights[id].get('name', 'lights[%d]' % id)
+            # Add a quater-turn around the X-axis.
+            x_rot = Quaternion((2**(1/2), 2**(1/2), 0, 0))
+            r *= x_rot
         else:
             assert(False)
 
@@ -445,6 +456,9 @@ def adjust_instances(op):
 
         if 'camera_instance' in vnode:
             move_to_child(vnode, 'camera_instance')
+
+        if 'light_instance' in vnode:
+            move_to_child(vnode, 'light_instance')
 
         if 'mesh_instance' in vnode:
             if vnode['type'] == 'BONE':
