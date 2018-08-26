@@ -191,63 +191,86 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     action = action_cache[anim_id]
 
 
+    # See vforest.py for the notation and assumptions used here.
+    #
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be
     #
-    #     true_trs = sample_gltf_curve()
+    #     T(b) = sample_gltf_curve()
     #
-    # But in Blender, when handling bones, you don't animate the bone directly
-    # like this, you animate a "pose bone", and the final position is computed
-    # relative to the rest position as
+    # But in Blender, you animate a "pose bone", and the final position is
+    # computed relative to the rest position as
     #
-    #     pose_trs = sample_blender_curve()
-    #     final_trs = rest_tr * pose_trs
+    #     P'(b) = sample_blender_curve()
+    #     T'(b) = E'(b) P'(b)
     #
-    # So we need to compute a value for pose_trs that gives the correct
-    # final_trs. As discussed in vforest.py this correct value is actually not
-    # just true_trs but
+    # where the primed varaibles have had a coordinate change to modify the bind
+    # pose (again, see vforest.py). Calculating the value we need for P'(b) from
+    # the value we have for T(b)
     #
-    #     final_trs = Rot[postr] (true trs) Rot[prer]
+    #     P'(b) =
+    #     E'(b)^{-1} T'(b) =
+    #     E'(b)^{-1} C(pb)^{-1} T(b) C(b) =
+    #      {remember that E' do not contain a scale and the C do not contain a translation}
+    #     Rot[er^{-1}] Trans[-et] Scale[post_s] Rot[post_r] Trans[t] Rot[r] Scale[s] Scale[pre_s] Rot[pre_r] =
+    #      {lift the translations up}
+    #     Trans[Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t] ...
     #
-    # where postr and prer are per-bone rotations that let us customize the way
-    # bones point. Working this out gives
+    # Defining pt = (the expression inside the Trans there)
     #
-    #     pose_trs =
-    #     rest_trs^{-1} * final_trs =
-    #     (Trans[rt] Rot[rr])^{-1} (Rot[postr] Trans[tt] Rot[tr] Scale[ts] Rot[prer]) =
-    #     Rot[rr^{-1}] Trans[-rt] Trans[Rot[postr] tt] Rot[postr] Rot[tr] Rot[prer] Scale[ts'] =
-    #     Rot[rr^{-1}] Trans[-rt + Rot[postr] tt] Rot[postr * tr * prer] Scale[ts'] =
-    #     Trans[Rot[rr^{-1}] (-rt + Rot[postr] tt)] Rot[rr^{-1} * postr * tr * prer] Scale[ts'] =
-    #     Trans[               pt                 ] Rot[             pr            ] Scale[ps ]
+    #     Trans[pt] Rot[er^{-1}] Scale[post_s] Rot[post_r] Rot[r] Scale[s] Scale[pre_s] Rot[pre_r] =
+    #      {by fiat, Scale[post_s] and Scale[pre_s] commute with rotations}
+    #     Trans[pt] Rot[er^{-1}] Rot[post_r] Rot[r] Scale[post_s] Scale[s] Rot[pre_r] Scale[pre_s] =
+    #      {using Scale[s] Rot[pre_r] = Rot[pre_r] Scale[s'] where s' is s permuted}
+    #     Trans[pt] Rot[er^{-1} * post_r * r] Scale[post_s] Rot[pre_r] Scale[s'] Scale[pre_s] =
+    #     Trans[pt] Rot[er^{-1} * post_r * r * pre_r] Scale[post_s * s' * pre_s] =
+    #     Trans[pt] Rot[pr] Scale[ps]
     #
-    # where ts' is computed by computed by permuting ts, again see vforest.py.
+    # As we promised, pt depends only on t, pr depends only on r, and ps depends
+    # only on s (ignoring constants), so each curve only has its ordinates
+    # changed and they are still independant and don't need to be resampled.
 
-    rest_t, rest_r = bone_vnode['bone_tr']
-    post_r = bone_vnode.get('bone_post_rotate', Quaternion((1, 0, 0, 0)))
-    pre_r = bone_vnode.get('bone_pre_rotate', Quaternion((1, 0, 0, 0)))
+    et, er = bone_vnode['bone_tr']
+    ier, iet = er.conjugated(), -et
+    parent_pre_r = bone_vnode['parent'].get('bone_pre_rotation', Quaternion((1,0,0,0)))
+    post_r = parent_pre_r.conjugated()
+    pre_r = bone_vnode.get('bone_pre_rotation', Quaternion((1,0,0,0)))
+    parent_pre_s = bone_vnode['parent'].get('bone_pre_scale', Vector((1,1,1)))
+    post_s = Vector((1/c for c in parent_pre_s))
+    pre_s = bone_vnode.get('bone_pre_scale', Vector((1,1,1)))
 
-    # Here we only compute the ordinates of the new pose curves. The time
-    # domains are the same as for the final curves.
-    inv_rest_r = rest_r.conjugated()
-    inv_rest_r_mat = inv_rest_r.to_matrix()
-    post_r_mat = post_r.to_matrix()
     pose_ordinates = {}
     if 'translation' in curves:
+        # pt = Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t
+        #    = c + m t
+        ier_mat = ier.to_matrix().to_4x4()
+        post_s_mat = Matrix.Identity(4)
+        for i in range(0, 3): post_s_mat[i][i] = post_s[i]
+        c = ier_mat * iet
+        m = ier_mat * post_s_mat * post_r.to_matrix().to_4x4()
+
         pose_ordinates['translation'] = [
-            inv_rest_r_mat * (-rest_t + post_r_mat * convert_translation(ft))
-            for ft in curves['translation']['output']
+            c + m * convert_translation(t)
+            for t in curves['translation']['output']
         ]
     if 'rotation' in curves:
+        # pt = er^{-1} * post_r * r * pre_r
+        #    = c * r * pre_r
+        c = ier * post_r
         pose_ordinates['rotation'] = [
-            inv_rest_r * post_r * convert_rotation(fr) * pre_r
-            for fr in curves['rotation']['output']
+            c * convert_rotation(r) * pre_r
+            for r in curves['rotation']['output']
         ]
     if 'scale' in curves:
+        # ps = post_s * s' * pre_s
         perm = bone_vnode['bone_pre_perm']
         def permute(s):
             return Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
+        def mul(s):
+            return Vector((post_s[i] * s[i] * pre_s[i] for i in range(0,3)))
         pose_ordinates['scale'] = [
-            permute(convert_scale(fs)) for fs in curves['scale']['output']
+            mul(permute(convert_scale(s)))
+            for s in curves['scale']['output']
         ]
 
 

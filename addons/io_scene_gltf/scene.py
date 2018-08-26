@@ -1,4 +1,5 @@
 import bpy
+from mathutils import Vector, Matrix
 from .vforest import create_vforest
 
 def create_scenes(op):
@@ -16,9 +17,7 @@ def realize_vforest(op):
     except Exception:
         pass
 
-    op.bones_with_nonunit_scales = []
-
-    def realize_vnode(vnode):
+    def realize_vnode(vnode, parent_bone_mat=None):
         if vnode['type'] == 'NORMAL':
             data = None
             if 'mesh_instance' in vnode:
@@ -75,9 +74,18 @@ def realize_vforest(op):
             bone = armature.edit_bones.new(vnode['name'])
             bone.use_connect = False
 
-            bone.head = vnode['bone_head']
-            bone.tail = vnode['bone_tail']
-            bone.align_roll(vnode['bone_align'])
+            # Bones transforms are given, not by giving their local-to-parent
+            # transform, but by giving their origin and axes in armature space.
+            # So we need the local-to-arma matrix.
+            t, r = vnode['bone_tr']
+            m = parent_bone_mat or Matrix.Identity(4)
+            m *= Matrix.Translation(t) * r.to_matrix().to_4x4()
+
+            bone.head = m * Vector((0, 0, 0))
+            bone.tail = m * Vector((0, vnode['bone_length'], 0))
+            bone.align_roll(m * Vector((0, 0, 1)) - bone.head)
+
+            parent_bone_mat = m
 
             vnode['blender_editbone'] = bone
             # Remember the name too because trying to access
@@ -85,20 +93,15 @@ def realize_vforest(op):
             # the wrath of heaven.
             vnode['blender_name'] = bone.name
 
-            if vnode.get('bone_had_nonunit_scale'):
-                op.bones_with_nonunit_scales.append(bone.name)
-
             if vnode['parent']:
                 if 'blender_editbone' in vnode['parent']:
                     bone.parent = vnode['parent']['blender_editbone']
-                else:
-                    assert(vnode['parent']['type'] == 'ARMATURE')
 
         else:
             assert(False)
 
         for child in vnode['children']:
-            realize_vnode(child)
+            realize_vnode(child, parent_bone_mat)
 
         if vnode['type'] == 'ARMATURE':
             # Exit edit mode when we're done creating an armature
@@ -135,12 +138,6 @@ def realize_vforest(op):
             # glTF/#1195. But note that this appears to break some sample models,
             # eg. Monster.
 
-        # Set the bone poses
-        if 'bone_pose_s' in vnode:
-            ob = vnode['armature_vnode']['blender_object']
-            pose_bone = ob.pose.bones[vnode['blender_name']]
-            pose_bone.scale = vnode['bone_pose_s']
-
         for child in vnode['children']:
             pass2(child)
 
@@ -148,16 +145,12 @@ def realize_vforest(op):
         pass2(root)
 
 
-    # Warn about non-unit scalings
-    if op.bones_with_nonunit_scales:
-        print('=========')
-        print(' WARNING')
-        print('=========')
-        print('The following bones had non-unit scalings. This is not supported.')
-        print('Skinned vertices influenced by these bones or their descendents will')
-        print('likely be in the wrong place!')
-        for name in op.bones_with_nonunit_scales:
-            print('   ', name)
+    # Warn about non-homogenous scalings
+    if op.bones_with_nonhomogenous_scales:
+        print(
+            'WARNING! The following bones had non-homogenous scalings:'
+            *(b['blender_name'] for b in op.bones_with_nonhomogenous_scales)
+        )
 
 
 
