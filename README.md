@@ -21,6 +21,13 @@ After this procedure, the exporter is available from  ``File->Import->glTF JSON 
 
 See [INSTALL.md](INSTALL.md) for further installation instructions.
 
+## Supported glTF Extensions
+* KHR_lights_punctual (untested, tentative until stabilized)
+* KHR_materials_pbrSpecularGlossiness
+* KHR_materials_unlit
+* KHR_texture_transform (untested)
+* MSFT_texture_dds
+
 ## Samples Renderings
 ![BoomBox](https://github.com/ksons/gltf-blender-importer/blob/master/doc/boom-box.png)
 ![Corset](https://github.com/ksons/gltf-blender-importer/blob/master/doc/corset.png)
