@@ -34,14 +34,13 @@ def create_image(op, idx):
         # from memory. We'll write it to a temp file and load it from there.
         # Yes, this is a hack :)
         with tempfile.TemporaryDirectory() as tmpdir:
-            # TODO: use the image's name, if it has one, for the file path; but
-            # we'll need to sanitize it in case it contains bad characters for a
-            # file name somehow
             img_path = os.path.join(tmpdir, 'image_%d' % idx)
             with open(img_path, 'wb') as f:
                 f.write(buffer)
             img = load_image(img_path)
             img.pack()  # TODO: should we use as_png?
+
+    img.name = image.get('name', 'images[%d]' % idx)
 
     return img
 
