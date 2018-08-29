@@ -328,25 +328,27 @@ def adjust_bones(op):
 
         # Choose a pre-scaling that will cancel out our scaling, s.
         vnode['bone_pre_scale'] = Vector((1/sc for sc in s))
-        s = Vector((1, 1, 1))
 
         # Choose a pre-rotation
         axis = None
         if op.bone_rotation_mode == 'MANUAL':
             axis = op.bone_rotation_axis
         elif op.bone_rotation_mode == 'AUTO':
-            # We choose the axis that makes our tail close to the head of the
-            # first child st. the distance from our head to the child's head is
-            # > 0
-            if len(vnode['children']) == 1:
-                child = vnode['children'][0]
-                child_head = child['trs'][0]
-                length = child_head.length
-                if length > 0.0005:
-                    for axis_name, vec in axes.items():
-                        if (vec * length - child_head).length < length * 0.25:
-                            axis = axis_name
-                            break
+            # We choose an axis that makes our tail close to the head of the
+            # one of our children
+            def guess_axis():
+                for child in vnode['children']:
+                    head = child['trs'][0]
+                    head = Vector((head[i] * s[i] for i in range(0, 3)))
+                    length = head.length
+                    if length > 0.0005:
+                        for axis_name, vec in axes.items():
+                            if (vec * length - head).length < length * 0.25:
+                                return axis_name
+                return None
+
+            axis = guess_axis()
+            # Otherwise use the same axis our parent used
             if not axis:
                 axis = vnode['parent'].get('bone_pre_rotation_axis', '+Y')
         elif op.bone_rotation_mode == 'NONE':
@@ -365,11 +367,21 @@ def adjust_bones(op):
         interbone_dists.append(t.length)
 
 
-        # Try getting a bone length for our parent if it doesn't have one yet
-        if vnode['parent']['type'] == 'BONE' and 'bone_length' not in vnode['parent']:
-            dist = t.length
-            if dist > 0.0005:
-                vnode['parent']['bone_length'] = dist
+        # Try getting a bone length for our parent. The length that makes its
+        # tail meet our head is considered best. Since the tail always lies
+        # along the +Y ray, the closer we are to the this ray the better our
+        # length will be compared to the lgnths chosen by our siblings. This is
+        # measured by the "goodness". Amoung siblings with equal goodness, we
+        # pick the smaller length, so the parent's tail will meet the nearest
+        # child.
+        if vnode['parent']['type'] == 'BONE':
+            t_len = t.length
+            if t_len > 0.0005:
+                goodness = t.dot(Vector((0,1,0))) / t_len
+                if goodness > vnode['parent'].get('bone_length_goodness', -1):
+                    if 'bone_length' not in vnode['parent'] or vnode['parent']['bone_length'] > t_len:
+                        vnode['parent']['bone_length'] = t_len
+                    vnode['parent']['bone_length_goodness'] = goodness
 
         # Recurse
         for child in vnode['children']:
