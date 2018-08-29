@@ -93,32 +93,24 @@ def init(op):
 # declared skeleton root, or at the lowest possible point if none is declared.
 def insert_armatures(op):
     def insert_parent(vnodes, parent):
-        # If there is one vnode, inserts parent between it and its parent.
-        # Otherwise, vnodes must all be roots and inserts parent as their
-        # common parent.
+        # Inserts parent as the parent of vnodes. All the vnodes must have the
+        # same original parent (possibly None).
+        first = True
         for vnode in vnodes:
             old_parent = vnode['parent']
             vnode['parent'] = parent
             parent['children'].append(vnode)
+            parent['parent'] = old_parent
             if old_parent:
-                assert(len(vnodes) == 1)
                 pos = old_parent['children'].index(vnode)
-                old_parent['children'][pos] = parent
-                parent['parent'] = old_parent
-            else:
-                parent['parent'] = None
+                if first:
+                    old_parent['children'][pos] = parent
+                else:
+                    del old_parent['children'][pos]
+            first = False
 
     skins = op.gltf.get('skins', [])
     for skin_id, skin in enumerate(skins):
-        if 'skeleton' not in skin:
-            joint_vnodes = [op.id_to_vnode[joint_id] for joint_id in skin['joints']]
-            skeleton_roots = lowest_common_ancestors(joint_vnodes)
-        else:
-            # TODO: not sure the spec actually guarantees that the
-            # skin['skeleton'] node will be an (improper) ancestor of the
-            # joints... could always use the other branch...
-            skeleton_roots = [op.id_to_vnode[skin['skeleton']]]
-
         armature = {
             'name': skin.get('name', 'skins[%d]' % skin_id),
             'children': [],
@@ -126,7 +118,23 @@ def insert_armatures(op):
             'parent': None,
         }
         op.vnodes.append(armature)
-        insert_parent(skeleton_roots, armature)
+
+        # We're going to find a place to insert the armature.
+        vnodes = [op.id_to_vnode[joint_id] for joint_id in skin['joints']]
+        # The standard doesn't guarantee much about the 'skeleton' node. Throw
+        # it into the pot! If it's really an ancestor of the joints, this will
+        # make the armature be inserted at the skeleton.
+        if 'skeleton' in skin:
+            vnodes.append(op.id_to_vnode[skin['skeleton']])
+        vnodes = lowest_common_ancestors(vnodes)
+
+        # If there is one lowest common ancestor and it isn't a joint, we can
+        # insert the armature below it instead of above it.
+        if len(vnodes) == 1:
+            if vnodes[0].get('node_id', -1) not in skin['joints']:
+                vnodes = vnodes[0]['children']
+
+        insert_parent(vnodes, armature)
 
     # Mark all the children of armatures as bones and delete any armatures that
     # are the descendants of other armatures.

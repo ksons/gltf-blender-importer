@@ -129,7 +129,8 @@ def realize_vforest(op):
                 ob.vertex_groups.new(bone_name)
 
             mod = ob.modifiers.new('Skin', 'ARMATURE')
-            mod.object = op.id_to_vnode[skin['skeleton']]['armature_vnode']['blender_object']
+            armature_vnode = op.id_to_vnode[skin['joints'][0]]['armature_vnode']
+            mod.object = armature_vnode['blender_object']
             mod.use_vertex_groups = True
 
             # TODO: we need to constrain the mesh to its armature so that its
