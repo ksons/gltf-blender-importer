@@ -132,7 +132,7 @@ def insert_armatures(op):
         # insert the armature below it instead of above it.
         if len(vnodes) == 1:
             if vnodes[0].get('node_id', -1) not in skin['joints']:
-                vnodes = vnodes[0]['children']
+                vnodes = list(vnodes[0]['children'])
 
         insert_parent(vnodes, armature)
 
@@ -160,7 +160,7 @@ def insert_armatures(op):
             if vnode['type'] == 'ARMATURE':
                 armature_vnode = vnode
 
-        for child in vnode['children']:
+        for child in list(vnode['children']):
             visit(child, armature_vnode)
 
     # Root node are now fixed so compute them
