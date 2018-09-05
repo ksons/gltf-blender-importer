@@ -122,11 +122,11 @@ def create_accessor_from_properties(op, accessor):
 
     # Main decoding loop
     off = accessor.get('byteOffset', 0)
-    result = []
-    while len(result) != count:
-        elem = struct.unpack_from(fmt, buf, offset=off)
-        result.append(elem)
-        off += stride
+    unpack_from = struct.Struct(fmt).unpack_from
+    result = [
+        unpack_from(buf, offset=off+i*stride)
+        for i in range(0, count)
+    ]
     if normalize:
         for i in range(0, count):
             result[i] = tuple([normalize(x) for x in result[i]])
