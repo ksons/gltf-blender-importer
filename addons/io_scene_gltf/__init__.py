@@ -4,7 +4,6 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, FloatProperty, EnumProperty
 from bpy_extras.io_utils import ImportHelper
 from mathutils import Euler
-
 from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups, light
 
 bl_info = {
@@ -31,6 +30,7 @@ EXTENSIONS = set((
     'KHR_materials_unlit',
     'KHR_texture_transform',
     'MSFT_texture_dds',
+    'EXT_property_animation', # tentative, only some material properties supported
 ))
 
 
@@ -112,6 +112,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_version()
         self.check_required_extensions()
 
+        if self.import_animations:
+            animation.gather_animations(self)
         material.compute_materials_using_color0(self)
         scene.create_scenes(self)
         if self.import_animations:

@@ -1,4 +1,4 @@
-import json
+import json, re
 
 import bpy
 from mathutils import Vector, Quaternion, Matrix
@@ -28,34 +28,50 @@ CONVERT_FNS = {
 }
 
 
+# As a first step towards importing, re-organize the data in a glTF animation
+# around what kind of thing is being animated (a node or a material), which
+# thing is being animated (the ID of the node or material), and which property
+# of that thing is being animated (translation, base color factor, etc).
+#
+# The re-organized data is stored in op.animation_info.
+def gather_animations(op):
+    op.animation_info = []
+    for anim_id in range(0, len(op.gltf.get('animations', []))):
+        op.animation_info.append(gather_animation(op, anim_id))
 
-def add_animations(op):
-    """Adds all the animations in the glTF file to Blender."""
-    for i in range(0, len(op.gltf.get('animations', []))):
-        add_animation(op, i)
+def read_sampler(op, sampler):
+    input = op.get('accessor', sampler['input'])
+    output = op.get('accessor', sampler['output'])
+    interpolation = sampler.get('interpolation', 'LINEAR')
 
+    if interpolation == 'CUBICSPLINE':
+        # TODO: not supported; for now drop the tangents and switch to LINEAR
+        # TODO: this work-around is also UNTESTED :)
+        output = [output[i] for i in range(1, len(output), 3)]
+        bl_interpolation = 'LINEAR'
+    elif interpolation == 'STEP':
+        bl_interpolation = 'CONSTANT'
+    elif interpolation == 'LINEAR':
+        bl_interpolation = 'LINEAR'
+    else:
+        print('unknown interpolation: %s', interpolation)
+        bl_interpolation = 'LINEAR'
 
-def add_animation(op, anim_id):
-    """Adds the animation with the given index to Blender."""
+    return {
+        'input': input,
+        'output': output,
+        'interpolation': interpolation,
+        'bl_interpolation': bl_interpolation,
+    }
+
+def gather_animation(op, anim_id):
     anim = op.gltf['animations'][anim_id]
-    channels = anim['channels']
     samplers = anim['samplers']
 
-    # Gather all the curves that affect a given node. node_curves will look like
-    # {
-    #     for each affected node_id: {
-    #         'translation': {
-    #             'input': [0.0, 0.1, 0.2, ...], # time
-    #             'output': [[1, 0, 0], [2, 0, 0], ...], # translations
-    #             'interpolation': 'LINEAR'
-    #         },
-    #         'rotation': ...,
-    #         'scale': ...,
-    #         'weights': ...,
-    #     }
-    # }
     node_curves = {}
+    material_curves = {}
 
+    channels = anim['channels']
     for channel in channels:
         sampler = samplers[channel['sampler']]
         target = channel['target']
@@ -63,40 +79,72 @@ def add_animation(op, anim_id):
             continue
         node_id = target['node']
         path = target['path']
+        if path not in ['translation', 'rotation', 'scale', 'weights']:
+            print('skipping animation curve, unknown path: %s' % path)
+            continue
 
-        input = op.get('accessor', sampler['input'])
-        output = op.get('accessor', sampler['output'])
-        interpolation = sampler.get('interpolation', 'LINEAR')
+        curve = read_sampler(op, sampler)
+        node_curves.setdefault(node_id, {})[path] = curve
 
-        if interpolation == 'CUBICSPLINE':
-            # TODO: not supported; for now drop the tangents and switch to LINEAR
-            # TODO: this work-around is also UNTESTED :)
-            output = [output[i] for i in range(1, len(output, 3))]
-            bl_interpolation = 'LINEAR'
-        elif interpolation == 'STEP':
-            bl_interpolation = 'CONSTANT'
-        elif interpolation == 'LINEAR':
-            bl_interpolation = 'LINEAR'
+    # EXT_property_animation channels
+    channels = anim.get('extensions', {}).get('EXT_property_animation', {}).get('channels', [])
+    for channel in channels:
+        sampler = samplers[channel['sampler']]
+        target = channel['target']
+
+        # Parse the target
+        patterns = [
+            r'/(nodes)/(\d+)/(translation|rotation|scale)',
+            r'/(materials)/(\d+)/(emissiveFactor|alphaCutoff)$',
+            r'/(materials)/(\d+)/(normalTexture/scale|occlusionTexture/strength)$',
+            r'/(materials)/(\d+)/pbrMetallicRoughness/(baseColorFactor|metallicFactor|roughnessFactor)$',
+            r'/(materials)/(\d+)/extensions/KHR_materials_pbrSpecularGlossiness/(diffuseFactor|specularFactor|glossinessFactor)$',
+            # Next up is texture transform properties
+        ]
+        result = None
+        for pattern in patterns:
+            match = re.match(pattern, target)
+            if match:
+                result = list(match.groups())
+                result[1] = int(result[1])
+                break
+        if not result:
+            print('skipping animation curve, target not supported: %s' % target)
+            continue
+
+        curve = read_sampler(op, sampler)
+        if result[0] == 'nodes':
+            node_curves.setdefault(result[1], {})[result[2]] = curve
+        elif result[0] == 'materials':
+            material_curves.setdefault(result[1], {})[result[2]] = curve
         else:
-            print('unknown interpolation: %s', interpolation)
-            bl_interpolation = 'LINEAR'
+            assert(False)
+
+    return {
+        'nodes': node_curves,
+        'materials': material_curves,
+    }
 
 
-        node_curves.setdefault(node_id, {})[path] = {
-            'input': input,
-            'output': output,
-            'interpolation': interpolation,
-            'bl_interpolation': bl_interpolation,
-        }
+def add_animations(op):
+    """Adds all the animations in the glTF file to Blender."""
+    for i in range(0, len(op.gltf.get('animations', []))):
+        add_animation(op, i)
 
-    for node_id, curves in node_curves.items():
+def add_animation(op, anim_id):
+    info = op.animation_info[anim_id]
+
+    for node_id, curves in info['nodes'].items():
         if op.id_to_vnode[node_id]['type'] == 'BONE':
             add_bone_fcurves(op, anim_id, node_id, curves)
         else:
             add_action(op, anim_id, node_id, curves)
+
         if 'weights' in curves:
             add_shape_key_action(op, anim_id, node_id, curves['weights'])
 
+    for material_id, curves in info['materials'].items():
+        add_material_action(op, anim_id, material_id, curves)
 
 
 
@@ -372,3 +420,77 @@ def add_shape_key_action(op, anim_id, node_id, curve):
             fcurve.keyframe_points[k].co = [frame, y]
 
         fcurve.update()
+
+
+
+def add_material_action(op, anim_id, material_id, curves):
+    # Again, a separate action.
+    animation = op.gltf['animations'][anim_id]
+    material = op.get('material', material_id)
+    node_tree = material.node_tree
+
+    name = animation.get('name', 'animations[%d]' % anim_id)
+    name += '@' + material.name
+    name += ' (Material)'
+    action = bpy.data.actions.new(name)
+    action.id_root = 'NODETREE'
+    action.use_fake_user = True
+
+    # Play the first animation by default
+    if anim_id == 0:
+        node_tree.animation_data_create().action = action
+
+
+    # The name of the group node in a material is currently always 'Group'
+    group_name = 'Group'
+
+
+    for prop, curve in curves.items():
+        if not curve['input']:
+            continue
+
+        prop_to_input = {
+            'emissiveFactor': 'EmissiveFactor',
+            'alphaCutoff': 'AlphaCutoff',
+            'normalTexture/scale': 'NormalScale',
+            'occlusionTexture/strength': 'OcclusionStrength',
+            'baseColorFactor': 'BaseColorFactor',
+            'metallicFactor': 'MetallicFactor',
+            'roughnessFactor': 'RoughnessFactor',
+            'diffuseFactor': 'DiffuseFactor',
+            'specularFactor': 'SpecularFactor',
+            'glossinessFactor': 'GlossinessFactor',
+        }
+        if prop in prop_to_input:
+            input_name = prop_to_input[prop]
+            input_id = node_tree.nodes[group_name].inputs.find(input_name)
+            if input_id == -1:
+                continue
+
+            data_path = 'nodes[%s].inputs[%d].default_value' % (quote(group_name), input_id)
+
+            # Decide how many components there are
+            y = curve['output'][0]
+            if type(y) in [int, float]:
+                num_components = 1
+            else:
+                num_components = len(y)
+
+            # TODO: we need to add alpha values to 3-component colors
+
+            for i in range(0, num_components):
+                if num_components == 1:
+                    fcurve = action.fcurves.new(data_path=data_path)
+                else:
+                    fcurve = action.fcurves.new(data_path=data_path, index=i)
+
+                fcurve.keyframe_points.add(len(curve['input']))
+                for k, (t, y) in enumerate(zip(curve['input'], curve['output'])):
+                    frame = t * op.framerate
+                    if num_components != 1: y = y[i]
+                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
+                    fcurve.keyframe_points[k].co = [frame, y]
+                fcurve.update()
+            continue
+
+        # Other properties would go here
