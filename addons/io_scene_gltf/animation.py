@@ -3,7 +3,6 @@ import json, re
 import bpy
 from mathutils import Vector, Quaternion, Matrix
 
-
 # An animation targets some quantity in a scene and says that it varies over
 # time by giving a curve mapping the time to the value of that quantity at that
 # time.
@@ -20,12 +19,6 @@ def convert_rotation(r):
     return Quaternion([r[0], r[1], -r[3], r[2]])
 def convert_scale(s):
     return Vector([s[0], s[2], s[1]])
-
-CONVERT_FNS = {
-    'translation': convert_translation,
-    'rotation': convert_rotation,
-    'scale': convert_scale,
-}
 
 
 # As a first step towards importing, re-organize the data in a glTF animation
@@ -155,10 +148,12 @@ def add_action(op, animation_id, node_id, curves):
     # pair. This is unfortunate; it would be better to have a one-to-one
     # correspondence glTF animation <-> Blender ???.
     animation = op.gltf['animations'][animation_id]
-    name = animation.get('name', 'animations[%d]' % animation_id)
     blender_object = op.id_to_vnode[node_id]['blender_object']
-    name += '@' + blender_object.name
-
+    name = (
+        animation.get('name', 'animations[%d]' % animation_id) +
+        '@' +
+        blender_object.name
+    )
     action = bpy.data.actions.new(name)
     action.use_fake_user = True
 
@@ -166,53 +161,40 @@ def add_action(op, animation_id, node_id, curves):
     if animation_id == 0:
         blender_object.animation_data_create().action = action
 
-    # The values in the glTF curve are the same (excepting the change of
-    # coordinates) as those needed in Blender's fcurve so we just copy them on
-    # through.
 
-    target_data = [
-        # (glTF path name, Blender path name, group name, number of components)
-        ('translation', 'location', 'Location', 3),
-        ('rotation', 'rotation_quaternion', 'Rotation', 4),
-        ('scale', 'scale', 'Scale', 3)
-    ]
-    for target, data_path, group_name, num_components in target_data:
-        if target in curves:
-            curve = curves[target]
-            convert = CONVERT_FNS[target]
+    if 'translation' in curves:
+        curve = curves['translation']
+        ordinates = (convert_translation(o) for o in curve['output'])
+        fcurves = add_fcurves(
+            op, action, curve['input'], ordinates, curve['bl_interpolation'], 3, 'location'
+        )
+        group = action.groups.new('Location')
+        for fcurve in fcurves:
+            fcurve.group = group
 
+    if 'rotation' in curves:
+        curve = curves['rotation']
+        if curve['interpolation'] == 'LINEAR':
+            shortened = shorten_quaternion_paths(curve['output'])
+            ordinates = (convert_rotation(o) for o in shortened)
+        else:
+            ordinates = (convert_rotation(o) for o in curve['output'])
+        fcurves = add_fcurves(
+            op, action, curve['input'], ordinates, curve['bl_interpolation'], 4, 'rotation_quaternion'
+        )
+        group = action.groups.new('Rotation')
+        for fcurve in fcurves:
+            fcurve.group = group
 
-            ordinates = curve['output']
-            if target == 'rotation' and curve['interpolation'] == 'LINEAR':
-                ordinates = shorten_quaternion_paths(ordinates)
-
-            group = action.groups.new(group_name)
-
-            # Create an fcurve for each component (eg. xyz) and then loop over
-            # the curve's points, filling in each fcurve with the corresponding
-            # component.
-            #
-            # NOTE: using keyframe_points.add/keyframe_points[k].co is *much*
-            # faster than using keyframe_points.insert.
-
-            fcurves = [
-                action.fcurves.new(data_path=data_path, index=i)
-                for i in range(0, num_components)
-            ]
-
-            for fcurve in fcurves:
-                fcurve.keyframe_points.add(len(curve['input']))
-                fcurve.group = group
-
-            for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
-                frame = t * op.framerate
-                y = convert(y)
-                for i, fcurve in enumerate(fcurves):
-                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
-                    fcurve.keyframe_points[k].co = [frame, y[i]]
-
-            for fcurve in fcurves:
-                fcurve.update()
+    if 'scale' in curves:
+        curve = curves['scale']
+        ordinates = (convert_scale(o) for o in curve['output'])
+        fcurves = add_fcurves(
+            op, action, curve['input'], ordinates, curve['bl_interpolation'], 3, 'scale'
+        )
+        group = action.groups.new('Scale')
+        for fcurve in fcurves:
+            fcurve.group = group
 
 
 
@@ -287,7 +269,6 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
     post_s = Vector((1/c for c in parent_pre_s))
     pre_s = bone_vnode.get('bone_pre_scale', Vector((1,1,1)))
 
-    pose_ordinates = {}
     if 'translation' in curves:
         # pt = Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t
         #    = c + m t
@@ -297,29 +278,23 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
         c = ier_mat * iet
         m = ier_mat * post_s_mat * post_r.to_matrix().to_4x4()
 
-        pose_ordinates['translation'] = [
-            c + m * convert_translation(t)
-            for t in curves['translation']['output']
-        ]
+        def mod_translation(t): return c + m * convert_translation(t)
+
     if 'rotation' in curves:
         # pt = er^{-1} * post_r * r * pre_r
-        #    = c * r * pre_r
-        c = ier * post_r
-        pose_ordinates['rotation'] = [
-            c * convert_rotation(r) * pre_r
-            for r in curves['rotation']['output']
-        ]
+        #    = d * r * pre_r
+        d = ier * post_r
+
+        def mod_rotation(r): return d * convert_rotation(r) * pre_r
+
     if 'scale' in curves:
         # ps = post_s * s' * pre_s
         perm = bone_vnode['bone_pre_perm']
-        def permute(s):
-            return Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
-        def mul(s):
+
+        def mod_scale(s):
+            s = convert_scale(s)
+            s = Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
             return Vector((post_s[i] * s[i] * pre_s[i] for i in range(0,3)))
-        pose_ordinates['scale'] = [
-            mul(permute(convert_scale(s)))
-            for s in curves['scale']['output']
-        ]
 
 
     bone_name = bone_vnode['blender_name']
@@ -327,56 +302,36 @@ def add_bone_fcurves(op, anim_id, node_id, curves):
 
     group = action.groups.new(bone_name)
 
-    triples = [
-        # (glTF path name, Blender path name, number of components)
-        ('translation', 'location', 3),
-        ('rotation', 'rotation_quaternion', 4),
-        ('scale', 'scale', 3)
-    ]
-    for target, data_path, num_components in triples:
-        if target in curves:
-            curve = curves[target]
-            ordinates = pose_ordinates[target]
+    if 'translation' in curves:
+        curve = curves['translation']
+        ordinates = (mod_translation(o) for o in curve['output'])
+        fcurves = add_fcurves(
+            op, action, curve['input'], ordinates, curve['bl_interpolation'], 3, base_path+'.location'
+        )
+        for fcurve in fcurves:
+            fcurve.group = group
 
-            if target == 'rotation' and curve['interpolation'] == 'LINEAR':
-                ordinates = shorten_quaternion_paths(ordinates)
+    if 'rotation' in curves:
+        curve = curves['rotation']
+        if curve['interpolation'] == 'LINEAR':
+            modified = [mod_rotation(o) for o in curve['output']]
+            ordinates = shorten_quaternion_paths(modified)
+        else:
+            ordinates = (mod_rotation(o) for o in curve['output'])
+        fcurves = add_fcurves(
+            op, action, curve['input'], ordinates, curve['bl_interpolation'], 4, base_path+'.rotation_quaternion'
+        )
+        for fcurve in fcurves:
+            fcurve.group = group
 
-            fcurves = [
-                action.fcurves.new(data_path=base_path + '.' + data_path, index=i)
-                for i in range(0, num_components)
-            ]
-
-            for fcurve in fcurves:
-                fcurve.keyframe_points.add(len(curve['input']))
-                fcurve.group = group
-
-            for k, (t, y) in enumerate(zip(curve['input'], ordinates)):
-                frame = t * op.framerate
-                for i, fcurve in enumerate(fcurves):
-                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
-                    fcurve.keyframe_points[k].co = [frame, y[i]]
-
-            for fcurve in fcurves:
-                fcurve.update()
-
-
-def shorten_quaternion_paths(qs):
-    """
-    Given a list of quaternions, return a list of quaternions which produce the
-    same rotations but where each element is always the closest quaternion to
-    its predecessor.
-
-    Applying this to the ordinates of a curve ensure rotation always takes the
-    "shortest path". See glTF issue #1395.
-    """
-    # Also note: it does not matter if you apply this before or after coordinate
-    # conversion :)
-    res = []
-    if qs: res.append(qs[0])
-    for i in range(1, len(qs)):
-        q = Quaternion(qs[i])
-        res.append(-q if q.dot(res[-1]) < 0 else q)
-    return res
+    if 'scale' in curves:
+        curve = curves['scale']
+        ordinates = (mod_scale(o) for o in curve['output'])
+        fcurves = add_fcurves(
+            op, action, curve['input'], ordinates, curve['bl_interpolation'], 3, base_path+'.scale'
+        )
+        for fcurve in fcurves:
+            fcurve.group = group
 
 
 
@@ -393,9 +348,11 @@ def add_shape_key_action(op, anim_id, node_id, curve):
         # didn't create a shape key
         return
 
-    name = animation.get('name', 'animations[%d]' % anim_id)
-    name += '@' + blender_object.name
-    name += ' (Morph)'
+    name = (
+        animation.get('name', 'animations[%d]' % anim_id) +
+        '@' + blender_object.name +
+        ' (Morph)'
+    )
     action = bpy.data.actions.new(name)
     action.id_root = 'KEY'
     action.use_fake_user = True
@@ -404,22 +361,15 @@ def add_shape_key_action(op, anim_id, node_id, curve):
     if anim_id == 0:
         blender_object.data.shape_keys.animation_data_create().action = action
 
+
     # Find out the number of morph targets
     mesh = op.gltf['meshes'][op.gltf['nodes'][node_id]['mesh']]
     num_targets = len(mesh['primitives'][0]['targets'])
 
     for i in range(0, num_targets):
         data_path = 'key_blocks[%s].value' % quote('Morph %d' % i)
-        fcurve = action.fcurves.new(data_path=data_path)
-        fcurve.keyframe_points.add(len(curve['input']))
-
-        for k, t in enumerate(curve['input']):
-            frame = t * op.framerate
-            y = curve['output'][num_targets * k + i]
-            fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
-            fcurve.keyframe_points[k].co = [frame, y]
-
-        fcurve.update()
+        ordinates = curve['output'][i:len(curve['output']):num_targets]
+        add_fcurve(op, action, curve['input'], ordinates, curve['bl_interpolation'], data_path)
 
 
 
@@ -429,9 +379,11 @@ def add_material_action(op, anim_id, material_id, curves):
     material = op.get('material', material_id)
     node_tree = material.node_tree
 
-    name = animation.get('name', 'animations[%d]' % anim_id)
-    name += '@' + material.name
-    name += ' (Material)'
+    name = (
+        animation.get('name', 'animations[%d]' % anim_id) +
+        '@' + material.name +
+        ' (Material)'
+    )
     action = bpy.data.actions.new(name)
     action.id_root = 'NODETREE'
     action.use_fake_user = True
@@ -442,7 +394,7 @@ def add_material_action(op, anim_id, material_id, curves):
 
 
     # The name of the group node in a material is currently always 'Group'
-    group_name = 'Group'
+    group_node_name = 'Group'
 
 
     for prop, curve in curves.items():
@@ -463,34 +415,75 @@ def add_material_action(op, anim_id, material_id, curves):
         }
         if prop in prop_to_input:
             input_name = prop_to_input[prop]
-            input_id = node_tree.nodes[group_name].inputs.find(input_name)
+            input_id = node_tree.nodes[group_node_name].inputs.find(input_name)
             if input_id == -1:
                 continue
 
-            data_path = 'nodes[%s].inputs[%d].default_value' % (quote(group_name), input_id)
-
-            # Decide how many components there are
-            y = curve['output'][0]
-            if type(y) in [int, float]:
-                num_components = 1
-            else:
-                num_components = len(y)
+            data_path = 'nodes[%s].inputs[%d].default_value' % (quote(group_node_name), input_id)
 
             # TODO: we need to add alpha values to 3-component colors
 
-            for i in range(0, num_components):
-                if num_components == 1:
-                    fcurve = action.fcurves.new(data_path=data_path)
-                else:
-                    fcurve = action.fcurves.new(data_path=data_path, index=i)
-
-                fcurve.keyframe_points.add(len(curve['input']))
-                for k, (t, y) in enumerate(zip(curve['input'], curve['output'])):
-                    frame = t * op.framerate
-                    if num_components != 1: y = y[i]
-                    fcurve.keyframe_points[k].interpolation = curve['bl_interpolation']
-                    fcurve.keyframe_points[k].co = [frame, y]
-                fcurve.update()
+            # Figure out the number of components
+            try:
+                num_components = len(curve['output'][0])
+            except Exception:
+                num_components = 1
+            
+            if num_components == 1:
+                add_fcurve(op, action, curve['input'], curve['output'], curve['bl_interpolation'], data_path)
+            else:
+                add_fcurves(op, action, curve['input'], curve['output'], curve['bl_interpolation'], num_components, data_path)
+            
             continue
 
         # Other properties would go here
+
+
+
+def add_fcurve(op, action, input, output, interpolation, data_path, index=None):
+    if index == None:
+        fcurve = action.fcurves.new(data_path=data_path)
+    else:
+        fcurve = action.fcurves.new(data_path=data_path, index=index)
+    keyframe_points = fcurve.keyframe_points
+    keyframe_points.add(len(input))
+    framerate = op.framerate
+    for k, (t, y) in enumerate(zip(input, output)):
+        keyframe_points[k].interpolation = interpolation
+        keyframe_points[k].co = (t * framerate, y)
+    fcurve.update()
+    return fcurve
+
+def add_fcurves(op, action, input, output, interpolation, num_components, data_path):
+    assert(num_components > 1)
+    fcurves = [
+        action.fcurves.new(data_path=data_path, index=i) for i in range(0, num_components)
+    ]
+    for fcurve in fcurves:
+        fcurve.keyframe_points.add(len(input))
+    framerate = op.framerate
+    for k, (t, ys) in enumerate(zip(input, output)):
+        for i in range(0, num_components):
+            fcurves[i].keyframe_points[k].interpolation = interpolation
+            fcurves[i].keyframe_points[k].co = (t * framerate, ys[i])
+    for fcurve in fcurves:
+        fcurve.update()
+    return fcurves
+
+def shorten_quaternion_paths(qs):
+    """
+    Given a list of quaternions, return a list of quaternions which produce the
+    same rotations but where each element is always the closest quaternion to
+    its predecessor.
+
+    Applying this to the ordinates of a curve ensure rotation always takes the
+    "shortest path". See glTF issue #1395.
+    """
+    # Also note: it does not matter if you apply this before or after coordinate
+    # conversion :)
+    res = []
+    if qs: res.append(qs[0])
+    for i in range(1, len(qs)):
+        q = Quaternion(qs[i])
+        res.append(-q if q.dot(res[-1]) < 0 else q)
+    return res
