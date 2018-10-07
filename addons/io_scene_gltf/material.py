@@ -50,17 +50,14 @@ def create_material(op, idx):
     special value 'default_material', create a Blender material for the default
     glTF material instead.
     """
+    if idx == 'default_material':
+        material = {}
+        material_name = 'glTF Default Material'
+    else:
+        material = op.gltf['materials'][idx]
+        material_name = material.get('name', 'materials[%d]' % idx)
     use_color0 = idx in op.materials_using_color0
 
-    if idx == 'default_material':
-        return create_material_from_properties(op, {}, 'gltf Default Material', use_color0)
-
-    material = op.gltf['materials'][idx]
-    material_name = material.get('name', 'materials[%d]' % idx)
-    return create_material_from_properties(op, material, material_name, use_color0)
-
-
-def create_material_from_properties(op, material, material_name, use_color0):
     mat = bpy.data.materials.new(material_name)
     mat.use_nodes = True
     tree = mat.node_tree
@@ -70,6 +67,7 @@ def create_material_from_properties(op, material, material_name, use_color0):
         tree.nodes.remove(tree.nodes[0])
 
     g = tree.nodes.new('ShaderNodeGroup')
+    g.name = 'main'
     g.location = 43, 68
     g.width = 255
     if 'KHR_materials_unlit' in material.get('extensions', {}):
@@ -135,7 +133,7 @@ def create_material_from_properties(op, material, material_name, use_color0):
     # Now textures. First, make a list of all the textures we'll need. The list
     # contains pairs (glTF textureInfo, g's input node name).
     textures = [
-        (obj[prop_name], input_name)
+        (obj[prop_name], prop_name, input_name)
         for obj, prop_name, input_name in [
             (pbr, 'baseColorTexture', 'BaseColor'),
             (pbr, 'diffuseTexture', 'Diffuse'),
@@ -153,8 +151,8 @@ def create_material_from_properties(op, material, material_name, use_color0):
     y = g.location[1] + (len(textures) * 300 + (len(textures) - 1) * 10) / 2 - 300
     y_step = -310
 
-    for texinfo, input in textures:
-        tex = create_texture_node(op, tree, texinfo, x, y)
+    for texinfo, prop_name, input in textures:
+        tex = create_texture_node(op, tree, idx, prop_name, texinfo, x, y)
         y += y_step
         tex.name = {
             'BaseColor': 'Base Color Texture',
@@ -200,11 +198,12 @@ def create_material_from_properties(op, material, material_name, use_color0):
 
 # This function creates an Image Texture node for each texture, plus any
 # nodes needed for its wrapping mode, texture transform, etc.
-def create_texture_node(op, tree, info, x, y):
+def create_texture_node(op, tree, material_id, texture_type, info, x, y):
     links = tree.links
     texture = op.gltf['textures'][info['index']]
 
     img_texture = tree.nodes.new('ShaderNodeTexImage')
+    # TODO: 'source' is not required
     if 'MSFT_texture_dds' in info.get('extensions', {}):
         image_id = texture['MSFT_texture_dds']['source']
     else:
@@ -253,8 +252,12 @@ def create_texture_node(op, tree, info, x, y):
 
 
     # Handle any texture transform
-    # TODO: test this!!!
-    if 'KHR_texture_transform' in texture.get('extensions', {}):
+    needs_tex_transform = (
+        'KHR_texture_transform' in texture.get('extensions', {}) or
+        # This is set if the texture transform is animated
+        op.material_texture_has_animated_transform.get((material_id, texture_type))
+    )
+    if needs_tex_transform:
         t = texture['extensions']['KHR_texture_transform']
 
         texcoord_set = t.get('texCoord', texcoord_set)
@@ -262,29 +265,35 @@ def create_texture_node(op, tree, info, x, y):
         rotation = t.get('rotation', 0)
         scale = t.get('scale', [1, 1])
 
-        # We need a coordinate change since we change (u,v)->(u,1-v) when we
-        # come into Blender. My calculation gave this but again it is NOT
-        # TESTED! It does fix the identity though, so that's promising :)
-        z = scale[1] * Vector((-math.sin(rotation), -math.cos(rotation)))
-        offset, rotation, scale = (
-            z + Vector((offset[0], 1 - offset[1])),
-            -rotation,
-            [scale[0], scale[1]],
-        )
+        bl2gltf_xform = tree.nodes.new('ShaderNodeMapping')
+        bl2gltf_xform.location = [x - 1200, y]
+        texture_transform_nodes.append(bl2gltf_xform)
+        bl2gltf_xform.vector_type = 'VECTOR'
+        bl2gltf_xform.translation = (0, 1, 0)
+        bl2gltf_xform.scale = (1, -1, 1)
 
         xform = tree.nodes.new('ShaderNodeMapping')
-        xform.location = [x - 400, y]
+        xform.name = texture_type + '_xform'
+        xform.location = [x - 800, y]
         texture_transform_nodes.append(xform)
-
-        xform.vector_type = 'VECTOR' # TODO: or 'TEXTURE'?
+        xform.vector_type = 'POINT'
         xform.translation[0] = offset[0]
         xform.translation[1] = offset[1]
         xform.rotation[2] = rotation
         xform.scale[0] = scale[0]
         xform.scale[1] = scale[1]
 
-        links.new(get_incoming(), xform.inputs[0])
-        last_output[0] = xform.outputs[0]
+        gltf2bl_xform = tree.nodes.new('ShaderNodeMapping')
+        gltf2bl_xform.location = [x - 400, y]
+        texture_transform_nodes.append(gltf2bl_xform)
+        gltf2bl_xform.vector_type = 'VECTOR'
+        gltf2bl_xform.translation = (0, 1, 0)
+        gltf2bl_xform.scale = (1, -1, 1)
+
+        links.new(get_incoming(), bl2gltf_xform.inputs[0])
+        links.new(bl2gltf_xform.outputs[0], xform.inputs[0])
+        links.new(xform.outputs[0], gltf2bl_xform.inputs[0])
+        last_output[0] = gltf2bl_xform.outputs[0]
 
 
     if 'sampler' in texture:
@@ -385,7 +394,7 @@ def create_texture_node(op, tree, info, x, y):
         move_back(texture_transform_nodes, 780)
         move_back(texcoord_nodes, 780)
     if texture_transform_nodes:
-        move_back(texcoord_nodes, 400)
+        move_back(texcoord_nodes, 1200)
 
 
     return img_texture

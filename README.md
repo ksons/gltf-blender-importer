@@ -17,11 +17,10 @@ After installing you have to find the add-on and activate it.
 
 After this procedure, the exporter is available from  ``File->Import->glTF JSON (.gltf/.glb)``.
 
-
-
 See [INSTALL.md](INSTALL.md) for further installation instructions.
 
 ## Supported glTF Extensions
+* EXT_property_animation (tentative until stabilized, material properties only)
 * KHR_lights_punctual (untested, tentative until stabilized)
 * KHR_materials_pbrSpecularGlossiness
 * KHR_materials_unlit

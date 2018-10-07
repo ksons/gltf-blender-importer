@@ -30,7 +30,7 @@ EXTENSIONS = set((
     'KHR_materials_unlit',
     'KHR_texture_transform',
     'MSFT_texture_dds',
-    'EXT_property_animation', # tentative, only some material properties supported
+    'EXT_property_animation', # tentative, only material properties supported
 ))
 
 
@@ -106,6 +106,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         self.caches = {}
+        self.material_texture_has_animated_transform = {}
 
         self.load_config()
         self.load()
@@ -113,7 +114,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.check_required_extensions()
 
         if self.import_animations:
-            animation.gather_animations(self)
+            animation.gather_animation_info(self)
         material.compute_materials_using_color0(self)
         scene.create_scenes(self)
         if self.import_animations:
