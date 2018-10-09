@@ -126,7 +126,7 @@ def gather_animation(op, anim_id):
             )[path] = sampler
 
             # Make a note that this material/texture has a transform animation.
-            op.material_texture_has_animated_transform[(material_id, texture_type)] = True
+            op.material_texture_has_animated_transform[(int(material_id), texture_type)] = True
 
             continue
 

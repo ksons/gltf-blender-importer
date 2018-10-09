@@ -253,47 +253,53 @@ def create_texture_node(op, tree, material_id, texture_type, info, x, y):
 
     # Handle any texture transform
     needs_tex_transform = (
-        'KHR_texture_transform' in texture.get('extensions', {}) or
+        'KHR_texture_transform' in info.get('extensions', {}) or
         # This is set if the texture transform is animated
         op.material_texture_has_animated_transform.get((material_id, texture_type))
     )
     if needs_tex_transform:
-        t = texture['extensions']['KHR_texture_transform']
+        t = info.get('extensions', {}).get('KHR_texture_transform', {})
 
         texcoord_set = t.get('texCoord', texcoord_set)
         offset = t.get('offset', [0, 0])
         rotation = t.get('rotation', 0)
         scale = t.get('scale', [1, 1])
 
-        bl2gltf_xform = tree.nodes.new('ShaderNodeMapping')
-        bl2gltf_xform.location = [x - 1200, y]
-        texture_transform_nodes.append(bl2gltf_xform)
-        bl2gltf_xform.vector_type = 'VECTOR'
-        bl2gltf_xform.translation = (0, 1, 0)
-        bl2gltf_xform.scale = (1, -1, 1)
+        frame = tree.nodes.new('NodeFrame')
+        frame.label = 'Texture Transform'
+        texture_transform_nodes.append(frame)
+        frame.width, frame.height = 862, 330
+        frame.location = [x - 1130, y + 100]
+
+        conv_before = tree.nodes.new('ShaderNodeGroup')
+        conv_before.parent = frame
+        conv_before.location = [167, -206]
+        conv_before.width = 180
+        conv_before.node_tree = op.get('node_group', 'glTF <-> Blender UV')
 
         xform = tree.nodes.new('ShaderNodeMapping')
         xform.name = texture_type + '_xform'
-        xform.location = [x - 800, y]
-        texture_transform_nodes.append(xform)
+        xform.parent = frame
+        xform.location = [408, -108]
         xform.vector_type = 'POINT'
-        xform.translation[0] = offset[0]
-        xform.translation[1] = offset[1]
+        xform.translation[0], xform.translation[1] = offset
         xform.rotation[2] = rotation
-        xform.scale[0] = scale[0]
-        xform.scale[1] = scale[1]
+        xform.scale[0], xform.scale[1] = scale
 
-        gltf2bl_xform = tree.nodes.new('ShaderNodeMapping')
-        gltf2bl_xform.location = [x - 400, y]
-        texture_transform_nodes.append(gltf2bl_xform)
-        gltf2bl_xform.vector_type = 'VECTOR'
-        gltf2bl_xform.translation = (0, 1, 0)
-        gltf2bl_xform.scale = (1, -1, 1)
+        conv_after = tree.nodes.new('ShaderNodeGroup')
+        conv_after.parent = frame
+        conv_after.location = [790, -200]
+        conv_after.width = 180
+        conv_after.node_tree = op.get('node_group', 'glTF <-> Blender UV')
 
-        links.new(get_incoming(), bl2gltf_xform.inputs[0])
-        links.new(bl2gltf_xform.outputs[0], xform.inputs[0])
-        links.new(xform.outputs[0], gltf2bl_xform.inputs[0])
-        last_output[0] = gltf2bl_xform.outputs[0]
+        texture_transform_nodes.append(conv_before)
+        texture_transform_nodes.append(xform)
+        texture_transform_nodes.append(conv_after)
+
+        links.new(get_incoming(), conv_before.inputs[0])
+        links.new(conv_before.outputs[0], xform.inputs[0])
+        links.new(xform.outputs[0], conv_after.inputs[0])
+        last_output[0] = conv_after.outputs[0]
 
 
     if 'sampler' in texture:
