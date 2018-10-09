@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-"""Run and report on automated tests for the importer.
+"""
+Run and report on automated tests for the importer.
 
 You can read the test results programmatically (eg. for CI) from the
 report.json file or by examining the exit code of this script. Possible
@@ -8,7 +9,6 @@ values are:
 0 - All tests passed
 1 - Some kind of error occurred (as distinct from "some test failed")
 3 - At least one test failed
-
 """
 
 import argparse
@@ -17,17 +17,14 @@ import os
 import subprocess
 import sys
 
-
 base_dir = os.path.dirname(os.path.abspath(__file__))
 samples_path = os.path.join(base_dir, 'glTF-Sample-Models', '2.0')
 report_path = os.path.join(base_dir, 'report.json')
 test_script = os.path.join(base_dir, 'generate_report.py')
 scripts_dir = os.path.join(base_dir, os.pardir)
 
-
-def fetch_samples():
-    """Get sample files by initializing git submodules.
-    """
+def cmd_get(args=None):
+    """Get sample files by initializing git submodules."""
     try:
         print("Checking if we're in a git repo...")
         subprocess.run(
@@ -41,7 +38,7 @@ def fetch_samples():
         raise
 
     try:
-        print("Initializing submodules (be patient)...")
+        print("Fetching submodules (be patient)...")
         subprocess.run(
             ['git', 'submodule', 'update', '--init', '--recursive'],
             cwd=base_dir,
@@ -54,23 +51,25 @@ def fetch_samples():
     if not os.path.isdir(samples_path):
         print("Samples still aren't there! Aborting")
         raise Exception('no samples after initializing submodules')
-    else:
-        print('Good to go!')
-        print('This step should only happen once.\n\n')
+
+    print('Good to go!')
 
 
-def generate_report():
-    """Calls Blender to generate report.json file.
-    """
+def cmd_run(args):
+    """Calls Blender to generate report.json file."""
     if not os.path.isdir(samples_path):
         print("Couldn't find glTF-Sample-Models/2.0/")
         print("I'll try to fetch it for you...")
-        fetch_samples()
+        cmd_get()
+        print('This step should only happen once.\n\n')
+
+    exe = args.exe
 
     # Print Blender version for debugging
     try:
-        subprocess.run(['blender', '--version'], check=True)
+        subprocess.run([exe, '--version'], check=True)
     except BaseException:
+        print("Couldn't run %s" % exe)
         print('Check that Blender is installed!')
         raise
 
@@ -82,11 +81,9 @@ def generate_report():
     # directory structure which we have in the projects root directory
     env = os.environ.copy()
     env['BLENDER_USER_SCRIPTS'] = scripts_dir
-    # TODO: Should we worry about BLENDER_SYSTEM_SCRIPTS, etc?
-
     subprocess.run(
         [
-            'blender',
+            exe,
             '-noaudio',  # sound ssystem to None (less output on stdout)
             '--background',  # run UI-less
             '--factory-startup',  # factory settings
@@ -97,13 +94,11 @@ def generate_report():
         check=True
     )
 
+    return cmd_report()
 
-def print_report():
-    """Print report from report.json file.
 
-    Exits with the appropriate exit code afterwards.
-
-    """
+def cmd_report(args=None):
+    """Print report from report.json file."""
     with open(report_path) as f:
         report = json.load(f)
 
@@ -116,8 +111,7 @@ def print_report():
     failed = '\033[31m' + 'FAILED' + '\033[0m'  # red 'FAILED'
 
     for test in tests:
-        name = os.path.relpath(test['filename'], samples_path)
-        print('import', name, '... ', end='')
+        print('import', test['filename'], '... ', end='')
         if test['result'] == 'PASSED':
             print(ok, "(%.4f s)" % test['timeElapsed'])
             num_passed += 1
@@ -125,7 +119,7 @@ def print_report():
             print(failed)
             print(test['error'])
             num_failed += 1
-            failures.append(name)
+            failures.append(test['filename'])
 
     if failures:
         print('\nfailures:')
@@ -139,40 +133,39 @@ def print_report():
     )
 
     exit_code = 0 if num_failed == 0 else 3
-    sys.exit(exit_code)
+    return exit_code
 
 
-def print_times():
+def cmd_report_times(args=None):
     """Prints the tests sorted by import time."""
     with open(report_path) as f:
         report = json.load(f)
 
-    def test_passed(test): return test['result'] == 'PASSED'
+    test_passed = lambda test: test['result'] == 'PASSED'
     tests = list(filter(test_passed, report['tests']))
     tests.sort(key=lambda test: test['timeElapsed'], reverse=True)
 
     for (num, test) in enumerate(tests, start=1):
-        name = os.path.relpath(test['filename'], samples_path)
-        print('( #%-3d )  % 2.4fs   %s' % (num, test['timeElapsed'], name))
+        print('( #%-3d )  % 2.4fs   %s' % (num, test['timeElapsed'], test['filename']))
 
 
-parser = argparse.ArgumentParser(description='Run glTF importer tests.')
-parser.add_argument(
-    '--print-last-report',
-    action='store_true',
-    help="print last report (don't run tests again)",
-)
-parser.add_argument(
-    '--print-last-times',
-    action='store_true',
-    help="show last results sorted by import time (don't run tests again)",
-)
-args = parser.parse_args()
+p = argparse.ArgumentParser(description='glTF importer tests')
+subs = p.add_subparsers(title='subcommands', required=True)
 
-if args.print_last_times:
-    print_times()
-elif args.print_last_report:
-    print_report()
-else:
-    generate_report()
-    print_report()
+run = subs.add_parser('run', help='Run tests and generate report')
+run.add_argument('--exe', default='blender', help='Blender executable')
+run.set_defaults(func=cmd_run)
+
+get = subs.add_parser('get-samples', help='Fetch or update samples')
+get.set_defaults(func=cmd_get)
+
+report = subs.add_parser('report', help='Print last report')
+report.set_defaults(func=cmd_report)
+
+report_times = subs.add_parser('report-times', help='Print import times for last report')
+report_times.set_defaults(func=cmd_report_times)
+
+args = p.parse_args()
+result = args.func(args)
+if type(result) == int:
+    sys.exit(result)
