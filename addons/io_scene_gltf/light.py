@@ -51,7 +51,7 @@ def create_light(op, idx):
     return lamp
 
 
-# Wat conversions
+# Watt conversions
 
 incandescent_bulb = 0.0249
 ideal_555nm_source = 1 / 683

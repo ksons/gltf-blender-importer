@@ -24,7 +24,7 @@ See [INSTALL.md](INSTALL.md) for further installation instructions.
 * KHR_lights_punctual (untested, tentative until stabilized)
 * KHR_materials_pbrSpecularGlossiness
 * KHR_materials_unlit
-* KHR_texture_transform (untested)
+* KHR_texture_transform
 * MSFT_texture_dds
 
 ## Samples Renderings

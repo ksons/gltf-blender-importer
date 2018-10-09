@@ -102,7 +102,7 @@ def create_accessor_from_properties(op, accessor):
         default_stride = 24
 
     normalize = None
-    if 'normalized' in accessor and accessor['normalized']:
+    if accessor.get('normalized', False):
         normalize_lut = dict([
             (5120, lambda x: max(x / (2**7 - 1), -1)),   # BYTE
             (5121, lambda x: x / (2**8 - 1)),            # UNSIGNED_BYTE

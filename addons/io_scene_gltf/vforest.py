@@ -21,11 +21,6 @@ def create_vforest(op):
 #     o2   o3
 #         /  \
 #        o4   o5
-#
-# If no vnode had more than one instance on it, we could import this into
-# Blender creating objects for each vnode (an empty if the vnode had no
-# instance), setting parents and TRS properties appropiately, and have a perfect
-# copy of the forest from the glTF.
 def init(op):
     nodes = op.gltf.get('nodes', [])
 
@@ -69,11 +64,9 @@ def init(op):
             vnode['children'].append(child_vnode)
 
 
-# Alas, in order to do skinning, we must break this perfect representation by
-# inserting armatures. In this stage we insert "enough armatures" so that every
-# vnode which is the joint of a skin is a descendant of an armature. All those
-# vnodes which are the descendants of an armature will be realized in Blender as
-# bones.
+# In the second pass we insert enough armatures so that every node that is a
+# joint of a skin is the descendant of an armature. All nodes that are
+# descendants of an armature become bones.
 #
 #       o1
 #      /  \
@@ -82,15 +75,6 @@ def init(op):
 #          b3
 #         /  \
 #        b4   b5
-#
-# Note that an armature may join together two trees that were originally
-# seperate if a skin has joints in multiple trees.
-#
-# It's not very important exactly how we insert "enough armatures". One way
-# would be to insert a single armature at the root, but as we shall see bones
-# have certain deficiencies that make it desirable that as few vnodes as
-# possible be bones. Currently we insert armatures for each skin at that skin's
-# declared skeleton root, or at the lowest possible point if none is declared.
 def insert_armatures(op):
     def insert_parent(vnodes, parent):
         # Inserts parent as the parent of vnodes. All the vnodes must have the
@@ -190,8 +174,8 @@ def insert_armatures(op):
 # We want to change the edit bones (ie. the rest pose) to a new pose E'(b),
 # which has unit scaling and is rotated to point some way we think is better,
 # but where all the vertices end up at the same world space position. To do it,
-# we choose per-bone coordinate changes C(b) = Cs(b) Cr(b) (that is, Cs(b) is a
-# scaling, Cr(b) is a rotation) and replace
+# we choose per-bone coordinate changes C(b) = Cs(b) Cr(b) (Cs(b) is a scaling,
+# Cr(b) is a rotation) and replace
 #
 #     T'(b) = C(pb)^{-1} T(b) C(b)
 #     or
@@ -251,8 +235,8 @@ def insert_armatures(op):
 #
 # Second, even if they did form a group, in the expression for P'(b), it is not
 # necessarily the case that the translation component depends only on the
-# translation of P(b) (plus the Cs), the rotation depends only on the rotation,
-# etc. This failure means we would not be able to calculate animation curves
+# translation of P(b) (and C), the rotation depends only on the rotation, etc.
+# This failure means we would not be able to calculate animation curves
 # independently. The scale curve could affect the rotation curve, so we would
 # have to resample them onto a common domain, etc. This is undesirable (but it
 # is possible, there's code for it in our git history somewhere) not only
@@ -265,12 +249,12 @@ def insert_armatures(op):
 #
 #     Cs(b) commutes with any rotation: Cs(b) Rot[r] = Rot[r] Cs(b).
 #
-# If the rest scalings are all homogenous, then the Cs(b) scalings are also
-# homogenous and this assumption is justified. What if your model had
-# non-homogenous rest scalings? Too bad, we assume it anyway! You're lucky we'll
+# If the rest scalings are all homogeneous, then the Cs(b) scalings are also
+# homogeneous and this assumption is justified. What if your model had
+# non-homogeneous rest scalings? Too bad, we assume it anyway! You're lucky we'll
 # even look at your crummy model, ya dog. Maybe you'll get a warning. Anyway
 # it's not clear to me that it's possible in general to retarget a bind pose
-# that uses non-homogenous scalings onto one that doesn't use any scalings
+# that uses non-homogeneous scalings onto one that doesn't use any scalings
 # without some kind of loss of accuracy.
 #
 # Second, the Cr(b) rotations are picked to have a special form. They are, up to
@@ -282,7 +266,7 @@ def insert_armatures(op):
 #       where p is the permutation st. Rot[Cr(b)] e_k = e_{p(k)} (ignoring signs)
 #
 # This is necessary to get them to work with the scaling on the pose bones (in
-# animation importing) which we have not restricted to being homogenous.
+# animation importing) which we have not restricted to being homogeneous.
 def adjust_bones(op):
     axes = {
         '-X': Vector((-1,  0,  0)),
@@ -315,14 +299,14 @@ def adjust_bones(op):
     interbone_dists = []
 
     def approx_neq(x, y): return abs(x-y) > 0.005
-    op.bones_with_nonhomogenous_scales = []
+    op.bones_with_nonhomogeneous_scales = []
 
     def visit(vnode):
         t, r, s = vnode['trs']
 
         # Record this so we can warn about it
         if approx_neq(s[0], s[1]) or approx_neq(s[1], s[2]) or approx_neq(s[0], s[2]):
-            op.bones_with_nonhomogenous_scales.append(vnode)
+            op.bones_with_nonhomogeneous_scales.append(vnode)
 
         # Apply C(pb)^{-1} = Cr(pb)^{-1} Cs(pb)^{-1} = Rot[post_rotate] Scale[post_scale]
         post_rotation = vnode['parent'].get('bone_pre_rotation', Quaternion((1,0,0,0))).conjugated()
@@ -421,10 +405,10 @@ def adjust_bones(op):
 #
 #           o1
 #          /  \
-#         o2  arma
-#       /  |   |
-#      / mesh  b3
-#   camera    /  \
+#        o2   arma       (mesh stays on o2)
+#       /      |
+#   camera     b3
+#             /  \
 #            b4   b5
 #                  |
 #                mesh
@@ -504,7 +488,7 @@ def get_trs(node):
          # column-major to row-major
         m = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
         m.transpose()
-        (loc, rot, sca) = m.decompose()
+        loc, rot, sca = m.decompose()
     else:
         sca = node.get('scale', [1.0, 1.0, 1.0])
         rot = node.get('rotation', [0.0, 0.0, 0.0, 1.0])

@@ -4,7 +4,6 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, FloatProperty, EnumProperty
 from bpy_extras.io_utils import ImportHelper
 from mathutils import Euler
-from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups, light
 
 bl_info = {
     'name': 'glTF 2.0 Importer',
@@ -19,22 +18,21 @@ bl_info = {
     'category': 'Import-Export'
 }
 
-
 # Supported glTF version
 GLTF_VERSION = (2, 0)
 
 # Supported extensions
 EXTENSIONS = set((
+    'EXT_property_animation', # tentative, only material properties supported
     'KHR_lights_punctual', # tentative until stabilized
     'KHR_materials_pbrSpecularGlossiness',
     'KHR_materials_unlit',
     'KHR_texture_transform',
     'MSFT_texture_dds',
-    'EXT_property_animation', # tentative, only material properties supported
 ))
 
+from . import animation, buffer, camera, material, mesh, scene, node_groups, light, load
 
-def trip(x): return (x, x, x)
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
     bl_idname = 'import_scene.gltf'
@@ -64,7 +62,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     )
     bone_rotation_mode = EnumProperty(
         items=[
-            ('NONE', 'Don\'t change', ''),
+            ('NONE', "Don't change", ''),
             ('AUTO', 'Choose for me', ''),
             ('MANUAL', 'Choose manually', ''),
         ],
@@ -77,11 +75,11 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     )
     bone_rotation_axis = EnumProperty(
         items=[
-            trip('+X'),
-            trip('-X'),
-            trip('-Y'),
-            trip('+Z'),
-            trip('-Z'),
+            ('+X', '+X', '+X'),
+            ('-X', '-X', '-X'),
+            ('-Y', '-Y', '-Y'),
+            ('+Z', '+Z', '+Z'),
+            ('-Z', '-Z', '-Z'),
         ],
         name='+Y to',
         description=
@@ -92,7 +90,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         default='+Z',
     )
     import_animations = BoolProperty(
-        name='Import Animations (EXPERIMENTAL)',
+        name='Import Animations',
         description='',
         default=False,
     )
@@ -109,13 +107,14 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.material_texture_has_animated_transform = {}
 
         self.load_config()
-        self.load()
-        self.check_version()
-        self.check_required_extensions()
 
+        load.load(self)
+
+        # Precomputations
         if self.import_animations:
             animation.gather_animation_info(self)
         material.compute_materials_using_color0(self)
+
         scene.create_scenes(self)
         if self.import_animations:
             animation.add_animations(self)
@@ -143,142 +142,41 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col.prop(self, 'import_animations')
         col.prop(self, 'framerate')
 
-
     def get(self, kind, id):
         cache = self.caches.setdefault(kind, {})
         if id in cache:
             return cache[id]
         else:
+            CREATE_FNS = {
+                'buffer': buffer.create_buffer,
+                'buffer_view': buffer.create_buffer_view,
+                'accessor': buffer.create_accessor,
+                'image': material.create_image,
+                'material': material.create_material,
+                'node_group': node_groups.create_group,
+                'mesh': mesh.create_mesh,
+                'camera': camera.create_camera,
+                'light': light.create_light,
+            }
             result = CREATE_FNS[kind](self, id)
             if type(result) == dict and result.get('do_not_cache_me', False):
                 # Callee is requesting we not cache it
-                return result['result']
+                result = result['result']
             else:
                 cache[id] = result
-                return result
-
-    def load(self):
-        filename = self.filepath
-
-        # Remember this for resolving relative paths
-        self.base_path = os.path.dirname(filename)
-
-        with open(filename, 'rb') as f:
-            contents = f.read()
-
-        # Use magic number to detect GLB files.
-        is_glb = contents[:4] == b'glTF'
-        if is_glb:
-            self.parse_glb(contents)
-        else:
-            self.gltf = json.loads(contents.decode('utf-8'))
-            self.glb_buffer = None
-
-    def parse_glb(self, contents):
-        contents = memoryview(contents)
-
-        # Parse the header
-        header = struct.unpack_from('<4sII', contents)
-        glb_version = header[1]
-        if glb_version != 2:
-            raise Exception('GLB: version not supported: %d' % glb_version)
-
-        def parse_chunk(offset):
-            header = struct.unpack_from('<I4s', contents, offset=offset)
-            data_len = header[0]
-            ty = header[1]
-            data = contents[offset + 8: offset + 8 + data_len]
-            next_offset = offset + 8 + data_len
-            return {
-                'type': ty,
-                'data': data,
-                'next_offset': next_offset,
-            }
-
-        offset = 12  # end of header
-
-        # The first chunk must be JSON
-        json_chunk = parse_chunk(offset)
-        if json_chunk['type'] != b'JSON':
-            raise Exception('GLB: JSON chunk must be first')
-        self.gltf = json.loads(
-            json_chunk['data'].tobytes().decode('utf-8'),  # Need to decode for < 2.79.4 which comes with Python 3.5
-            encoding='utf-8'
-        )
-
-        self.glb_buffer = None
-
-        offset = json_chunk['next_offset']
-        while offset < len(contents):
-            chunk = parse_chunk(offset)
-
-            # Ignore unknown chunks
-            if chunk['type'] != b'BIN\0':
-                offset = chunk['next_offset']
-                continue
-
-            if chunk['type'] == b'JSON':
-                raise Exception('GLB: Too many JSON chunks, should be 1')
-
-            if self.glb_buffer != None:
-                raise Exception('GLB: Too many BIN chunks, should be 0 or 1')
-
-            self.glb_buffer = chunk['data']
-
-            offset = chunk['next_offset']
-
-    def check_version(self):
-        def parse_version(s):
-            """Parse a string like '1.1' to a tuple (1,1)."""
-            try:
-                version = tuple(int(x) for x in s.split('.'))
-                if len(version) >= 2: return version
-            except Exception:
-                pass
-            raise Exception('unknown version format: %s' % s)
-
-        asset = self.gltf['asset']
-
-        if 'minVersion' in asset:
-            min_version = parse_version(asset['minVersion'])
-            supported = GLTF_VERSION >= min_version
-            if not supported:
-                raise Exception('unsupported minimum version: %s' % min_version)
-        else:
-            version = parse_version(asset['version'])
-            # Check only major version; we should be backwards- and forwards-compatible
-            supported = version[0] == GLTF_VERSION[0]
-            if not supported:
-                raise Exception('unsupported version: %s' % version)
-
-    def check_required_extensions(self):
-        for ext in self.gltf.get('extensionsRequired', []):
-            if ext not in EXTENSIONS:
-                raise Exception('unsupported extension was required: %s' % ext)
-
+            return result
 
     def load_config(self):
-        """Load user-supplied options into instance vars."""
+        """Load user-supplied options."""
         keywords = self.as_keywords()
-        self.import_under_current_scene = keywords['import_under_current_scene']
-        self.smooth_polys = keywords['smooth_polys']
-        self.import_animations = keywords['import_animations']
-        self.framerate = keywords['framerate']
-        self.bone_rotation_mode = keywords['bone_rotation_mode']
-        self.bone_rotation_axis = keywords['bone_rotation_axis']
+        for opt in [
+            'import_under_current_scene', 'smooth_polys',
+            'import_animations', 'framerate', 'bone_rotation_mode',
+            'bone_rotation_axis',
+        ]:
+            setattr(self, opt, keywords[opt])
 
 
-CREATE_FNS = {
-    'buffer': buffer.create_buffer,
-    'buffer_view': buffer.create_buffer_view,
-    'accessor': buffer.create_accessor,
-    'image': material.create_image,
-    'material': material.create_material,
-    'node_group': node_groups.create_group,
-    'mesh': mesh.create_mesh,
-    'camera': camera.create_camera,
-    'light': light.create_light,
-}
 
 # Add to a menu
 def menu_func_import(self, context):

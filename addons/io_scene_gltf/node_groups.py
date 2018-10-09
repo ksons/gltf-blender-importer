@@ -182,7 +182,7 @@ def serialize():
         groups[group.name] = serialize_group(group)
 
     with open(node_groups_path, 'w') as f:
-        f.write('// !!AUTO-GENERATED!! See serialize_node_groups.py\n')
+        f.write('// !!AUTO-GENERATED!! See node_groups.py\n')
         f.write('{\n')
         keys = list(groups.keys())
         keys.sort()

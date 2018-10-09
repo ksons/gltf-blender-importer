@@ -146,11 +146,11 @@ def realize_vforest(op):
         pass2(root)
 
 
-    # Warn about non-homogenous scalings
-    if op.bones_with_nonhomogenous_scales:
+    # Warn about non-homogeneous scalings
+    if op.bones_with_nonhomogeneous_scales:
         print(
-            'WARNING! The following bones had non-homogenous scalings:'
-            *(b['blender_name'] for b in op.bones_with_nonhomogenous_scales)
+            'WARNING! The following bones had non-homogeneous scalings:',
+            *(b['blender_name'] for b in op.bones_with_nonhomogeneous_scales)
         )
 
 
