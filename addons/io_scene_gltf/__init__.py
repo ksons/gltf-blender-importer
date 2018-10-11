@@ -31,7 +31,7 @@ EXTENSIONS = set((
     'MSFT_texture_dds',
 ))
 
-from . import animation, buffer, camera, material, mesh, scene, node_groups, light, load
+from . import animation, buffer, camera, material, mesh, scene, light, load
 
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
@@ -153,7 +153,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
                 'accessor': buffer.create_accessor,
                 'image': material.create_image,
                 'material': material.create_material,
-                'node_group': node_groups.create_group,
+                'node_group': material.create_group,
                 'mesh': mesh.create_mesh,
                 'camera': camera.create_camera,
                 'light': light.create_light,

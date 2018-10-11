@@ -1,11 +1,12 @@
 import json, os
 import bpy
 
-# Load the serialized group data. Serialized data comes from
+# This file creates the node groups that we use during material creation. Node
+# groups are serialized in groups.json. The data comes from
 # KhronosGroup/glTF-Blender-Exporter/pbr_node/glTF2.blend, plus some
 # modifications.
 this_dir = os.path.dirname(os.path.abspath(__file__))
-node_groups_path = os.path.join(this_dir, 'node_groups.json')
+node_groups_path = os.path.join(this_dir, 'groups.json')
 with open(node_groups_path, 'r') as f:
     f.readline() # throw away comment line
     GROUP_DATA = json.load(f)
@@ -100,9 +101,10 @@ def load():
 
 def serialize_group(group):
     def val(x):
-        if type(x) == str: return x
+        if x == None: return x
+        if type(x) in [int, float, bool, list, str]: return x
         if hasattr(x, '__len__'): return list(x)
-        return x
+        assert(False)
 
     def serialize_sockets(sockets):
         result = []
@@ -193,4 +195,4 @@ def serialize():
             if k != keys[-1]:
                 f.write(',')
             f.write('\n')
-        f.write('}')
+        f.write('}\n')
