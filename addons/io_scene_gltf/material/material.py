@@ -3,6 +3,7 @@ from . import block
 from .texture import create_texture_block
 Block = block.Block
 
+
 def create_material(op, idx):
     """Create a Blender material for the glTF materials[idx]. If idx is the
     special value 'default_material', create a Blender material for the default
@@ -54,7 +55,6 @@ def create_material(op, idx):
 
     right_block = Block(g, output)
 
-
     # Fill in properties on [main].
     alpha_mode = material.get('alphaMode', 'OPAQUE')
     # mog_alpha modifies RGBA alpha values based on the alpha mode
@@ -64,6 +64,7 @@ def create_material(op, idx):
         def mog_alpha(rgba): return rgba
     else:
         print('unsupported alpha mode: %s' % alpha_mode)
+
         def mog_alpha(rgba): return rgba
 
     if alpha_mode == 'MASK':
@@ -96,7 +97,6 @@ def create_material(op, idx):
     set_value(material, 'emissiveFactor', 'EmissiveFactor', mog=rgb2rgba)
     set_value(material, 'alphaCutoff', 'AlphaCutoff')
     set_value(material, 'doubleSided', 'DoubleSided', mog=int)
-
 
     # Now input blocks. First, create blocks for all the textures that we need,
     # ie. that are both in the glTF file and are used by [main].

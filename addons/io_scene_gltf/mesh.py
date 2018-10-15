@@ -35,12 +35,10 @@ def create_mesh(op, idx):
 
         add_in_primitive(op, bme, primitive, material_idx)
 
-
     name = mesh.get('name', 'meshes[%d]' % idx)
     me = bpy.data.meshes.new(name)
     bmesh_to_mesh(bme, me)
     bme.free()
-
 
     # Fill in the material list (we can't do me.materials = materials since this
     # property is read-only).
@@ -53,7 +51,6 @@ def create_mesh(op, idx):
             polygon.use_smooth = True
 
     me.update()
-
 
     if not me.shape_keys:
         return me
@@ -95,11 +92,13 @@ def convert_coordinates(v):
     """Convert glTF coordinate system to Blender."""
     return [v[0], -v[2], v[1]]
 
+
 def get_layer(bme_layers, name):
     """Gets a layer from a BMLayerCollection, creating it if it does not exist."""
     if name not in bme_layers:
         return bme_layers.new(name)
     return bme_layers[name]
+
 
 def add_in_primitive(op, bme, primitive, material_index):
     """Adds the data for a glTF primitive into a bmesh."""
@@ -160,7 +159,6 @@ def add_in_primitive(op, bme, primitive, material_index):
 
     bme.verts.ensure_lookup_table()
 
-
     # Set the material index
     for face in bme.faces:
         face.material_index = material_index
@@ -180,7 +178,7 @@ def add_in_primitive(op, bme, primitive, material_index):
         colors = op.get('accessor', attributes[layer_name])
 
         # Old Blender versions only take RGB and new ones only take RGBA
-        if bpy.app.version >= (2, 79, 4): # this bound is not necessarily tight
+        if bpy.app.version >= (2, 79, 4):  # this bound is not necessarily tight
             if colors and len(colors[0]) == 3:
                 colors = [color+(1,) for color in colors]
         else:
@@ -234,7 +232,8 @@ def add_in_primitive(op, bme, primitive, material_index):
 
     # Set morph target positions (we don't handle normals/tangents)
     for k, target in enumerate(primitive.get('targets', [])):
-        if 'POSITION' not in target: continue
+        if 'POSITION' not in target:
+            continue
 
         layer = get_layer(bme.verts.layers.shape, 'Morph %d' % k)
 

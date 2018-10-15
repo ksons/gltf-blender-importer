@@ -1,6 +1,9 @@
-import tempfile, os, base64
+import tempfile
+import os
+import base64
 import bpy
 from bpy_extras.image_utils import load_image
+
 
 def create_image(op, idx):
     image = op.gltf['images'][idx]

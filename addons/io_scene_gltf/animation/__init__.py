@@ -1,8 +1,12 @@
-import json, re
+import json
+import re
 
 # Utility method; quotes a string using double quotes
+
+
 def quote(s):
     return json.dumps(s)
+
 
 from .node_trs import add_node_trs_animation
 from .morph_weight import add_morph_weight_animation
@@ -33,6 +37,7 @@ from .material import add_material_animation
 #
 # op.animations_info is a map from animation IDs to animation infos.
 
+
 def gather_animation_info(op):
     animations = op.gltf.get('animations', [])
     op.animation_info = [
@@ -40,11 +45,14 @@ def gather_animation_info(op):
         for anim_id in range(0, len(animations))
     ]
 
+
 def first_match(patterns, s):
     for pattern in patterns:
         match = re.match(pattern, s)
-        if match: return match
+        if match:
+            return match
     return None
+
 
 def gather_animation(op, anim_id):
     anim = op.gltf['animations'][anim_id]
@@ -107,7 +115,7 @@ def gather_animation(op, anim_id):
             (info['material']
                 .setdefault(int(material_id), {})
                 .setdefault('properties', {})
-            )[prop] = sampler
+             )[prop] = sampler
             continue
 
         # Texture transform properties
@@ -123,7 +131,7 @@ def gather_animation(op, anim_id):
                 .setdefault(int(material_id), {})
                 .setdefault('texture_transform', {})
                 .setdefault(texture_type, {})
-            )[path] = sampler
+             )[path] = sampler
 
             # Make a note that this material/texture has a transform animation.
             op.material_texture_has_animated_transform[(int(material_id), texture_type)] = True

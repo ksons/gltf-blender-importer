@@ -56,6 +56,7 @@ def create_light(op, idx):
 incandescent_bulb = 0.0249
 ideal_555nm_source = 1 / 683
 
+
 def cd2W(intensity, efficiency, surface):
     """
     intensity in candles
@@ -64,6 +65,7 @@ def cd2W(intensity, efficiency, surface):
     """
     lumens = intensity * surface
     return lumens / (efficiency * 683)
+
 
 def lux2W(intensity, efficiency):
     """

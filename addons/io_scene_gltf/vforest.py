@@ -6,6 +6,7 @@ from mathutils import Matrix, Quaternion, Vector, Euler
 # extensively as we build it which is hard to do with the real Blender scene,
 # which is why we first build it "virtually" like this.
 
+
 def create_vforest(op):
     init(op)
     insert_armatures(op)
@@ -270,10 +271,10 @@ def insert_armatures(op):
 def adjust_bones(op):
     axes = {
         '-X': Vector((-1,  0,  0)),
-        '+X': Vector(( 1,  0,  0)),
-        '-Y': Vector(( 0, -1,  0)),
-        '-Z': Vector(( 0,  0, -1)),
-        '+Z': Vector(( 0,  0,  1)),
+        '+X': Vector((1,  0,  0)),
+        '-Y': Vector((0, -1,  0)),
+        '-Z': Vector((0,  0, -1)),
+        '+Z': Vector((0,  0,  1)),
     }
     # Each of these carries the corresponding axis into the +Y axis. Used for
     # picking Cr(b).
@@ -309,8 +310,8 @@ def adjust_bones(op):
             op.bones_with_nonhomogeneous_scales.append(vnode)
 
         # Apply C(pb)^{-1} = Cr(pb)^{-1} Cs(pb)^{-1} = Rot[post_rotate] Scale[post_scale]
-        post_rotation = vnode['parent'].get('bone_pre_rotation', Quaternion((1,0,0,0))).conjugated()
-        post_scale = Vector((1/c for c in vnode['parent'].get('bone_pre_scale', [1,1,1])))
+        post_rotation = vnode['parent'].get('bone_pre_rotation', Quaternion((1, 0, 0, 0))).conjugated()
+        post_scale = Vector((1/c for c in vnode['parent'].get('bone_pre_scale', [1, 1, 1])))
         # Rot[post_rotate] Scale[post_scale] Trans[t] Rot[r] Scale[s] =
         # Trans[Rot[post_rotate] Scale[post_scale] t] Rot[post_rotate * r] Scale[post_scale * s]
         t = post_rotation.to_matrix() * t
@@ -358,7 +359,6 @@ def adjust_bones(op):
 
         interbone_dists.append(t.length)
 
-
         # Try getting a bone length for our parent. The length that makes its
         # tail meet our head is considered best. Since the tail always lies
         # along the +Y ray, the closer we are to the this ray the better our
@@ -369,7 +369,7 @@ def adjust_bones(op):
         if vnode['parent']['type'] == 'BONE':
             t_len = t.length
             if t_len > 0.0005:
-                goodness = t.dot(Vector((0,1,0))) / t_len
+                goodness = t.dot(Vector((0, 1, 0))) / t_len
                 if goodness > vnode['parent'].get('bone_length_goodness', -1):
                     if 'bone_length' not in vnode['parent'] or vnode['parent']['bone_length'] > t_len:
                         vnode['parent']['bone_length'] = t_len
@@ -422,14 +422,14 @@ def adjust_instances(op):
 
         if vnode['type'] == 'BONE':
             # Cancel out the pre-transform
-            r = vnode.get('bone_pre_rotation', Quaternion((1,0,0,0)))
-            s = vnode.get('bone_pre_scale', Quaternion((1,1,1)))
+            r = vnode.get('bone_pre_rotation', Quaternion((1, 0, 0, 0)))
+            s = vnode.get('bone_pre_scale', Quaternion((1, 1, 1)))
             # For bones, Blender puts a child at the tail, not the head (whyyy).
             # So we need to translate backwards along the bone's vector (= local
             # Y-axis).
             t = Vector((0, -vnode['bone_length'], 0))
         else:
-            t, r, s = Vector((0,0,0)), Quaternion((1,0,0,0)), Vector((1,1,1))
+            t, r, s = Vector((0, 0, 0)), Quaternion((1, 0, 0, 0)), Vector((1, 1, 1))
 
         # Quarter-turn around the X-axis. Used to account for cameras or lights
         # that point along the -Z axis in Blender but glTF says should look
@@ -457,14 +457,13 @@ def adjust_instances(op):
             'children': [],
             'type': 'NORMAL',
             'trs': (t, r, s),
-            'moved': True, # So we know we've already done this vnode
+            'moved': True,  # So we know we've already done this vnode
             inst_kind: inst,
         }
         op.vnodes.append(new_vnode)
         vnode['children'].append(new_vnode)
         vnode[inst_kind + '_moved_to'] = new_vnode
         return new_vnode
-
 
     for vnode in op.vnodes:
         if vnode.get('moved', False):
@@ -481,18 +480,17 @@ def adjust_instances(op):
                 move_to_child(vnode, 'mesh_instance')
 
 
-
 def get_trs(node):
     if 'matrix' in node:
         m = node['matrix']
-         # column-major to row-major
+        # column-major to row-major
         m = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
         m.transpose()
         loc, rot, sca = m.decompose()
     else:
         sca = node.get('scale', [1.0, 1.0, 1.0])
         rot = node.get('rotation', [0.0, 0.0, 0.0, 1.0])
-        rot = [rot[3], rot[0], rot[1], rot[2]] # xyzw -> wxyz
+        rot = [rot[3], rot[0], rot[1], rot[2]]  # xyzw -> wxyz
         loc = node.get('translation', [0.0, 0.0, 0.0])
 
     # Switch glTF coordinates to Blender coordinates

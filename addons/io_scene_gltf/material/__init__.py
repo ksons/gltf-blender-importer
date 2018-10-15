@@ -4,6 +4,7 @@ create_material = material.create_material
 create_image = image.create_image
 create_group = node_groups.create_group
 
+
 def compute_materials_using_color0(op):
     """Compute which materials use vertex color COLOR_0.
 

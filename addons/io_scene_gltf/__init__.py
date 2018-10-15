@@ -1,4 +1,6 @@
-import json, os, struct
+import json
+import os
+import struct
 
 import bpy
 from bpy.props import StringProperty, BoolProperty, FloatProperty, EnumProperty
@@ -23,8 +25,8 @@ GLTF_VERSION = (2, 0)
 
 # Supported extensions
 EXTENSIONS = set((
-    'EXT_property_animation', # tentative, only material properties supported
-    'KHR_lights_punctual', # tentative until stabilized
+    'EXT_property_animation',  # tentative, only material properties supported
+    'KHR_lights_punctual',  # tentative until stabilized
     'KHR_materials_pbrSpecularGlossiness',
     'KHR_materials_unlit',
     'KHR_texture_transform',
@@ -46,18 +48,16 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     import_under_current_scene = BoolProperty(
         name='Import contents under current scene',
-        description=
-            'When enabled, all the objects will be placed in the current '
-            'scene and no scenes will be created.\n'
-            'When disabled, scenes will be created to match the ones in the '
-            'glTF file. Any object not in a scene will not be visible.',
+        description='When enabled, all the objects will be placed in the current '
+        'scene and no scenes will be created.\n'
+        'When disabled, scenes will be created to match the ones in the '
+        'glTF file. Any object not in a scene will not be visible.',
         default=True,
     )
     smooth_polys = BoolProperty(
         name='Enable polygon smoothing',
-        description=
-            'Enable smoothing for all polygons in imported meshes. Suggest '
-            'disabling for low-res models.',
+        description='Enable smoothing for all polygons in imported meshes. Suggest '
+        'disabling for low-res models.',
         default=True,
     )
     bone_rotation_mode = EnumProperty(
@@ -67,10 +67,9 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             ('MANUAL', 'Choose manually', ''),
         ],
         name='Axis',
-        description=
-            'Adjusts which local axis bones should point along. The axis they '
-            'points along is always +Y. This option lets you rotate them so another '
-            'axis becomes +Y.',
+        description='Adjusts which local axis bones should point along. The axis they '
+        'points along is always +Y. This option lets you rotate them so another '
+        'axis becomes +Y.',
         default='AUTO',
     )
     bone_rotation_axis = EnumProperty(
@@ -82,11 +81,10 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             ('-Z', '-Z', '-Z'),
         ],
         name='+Y to',
-        description=
-            'If bones point the wrong way with the default value, enable '
-            '"Display > Axes" for the Armature and look in Edit mode. '
-            'You\'ll see that bones point along the local +Y axis. Decide '
-            'which local axis they should point along and put it here.',
+        description='If bones point the wrong way with the default value, enable '
+        '"Display > Axes" for the Armature and look in Edit mode. '
+        'You\'ll see that bones point along the local +Y axis. Decide '
+        'which local axis they should point along and put it here.',
         default='+Z',
     )
     import_animations = BoolProperty(
@@ -96,9 +94,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     )
     framerate = FloatProperty(
         name='Frames/second',
-        description=
-            'Used for animation. The Blender frame corresponding to the glTF '
-            'time t is computed as framerate * t.',
+        description='Used for animation. The Blender frame corresponding to the glTF '
+        'time t is computed as framerate * t.',
         default=60.0,
     )
 
@@ -175,7 +172,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'bone_rotation_axis',
         ]:
             setattr(self, opt, keywords[opt])
-
 
 
 # Add to a menu

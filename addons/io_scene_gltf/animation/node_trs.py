@@ -6,6 +6,7 @@ from .curve import Curve
 # Handles animating TRS properties for glTF nodes. In Blender, this can be
 # either an object or a bone.
 
+
 def add_node_trs_animation(op, anim_id, node_id, samplers):
     if op.id_to_vnode[node_id]['type'] == 'BONE':
         bone_trs(op, anim_id, node_id, samplers)
@@ -16,8 +17,12 @@ def add_node_trs_animation(op, anim_id, node_id, samplers):
 # Convert from glTF coordinates to Blender.
 def convert_translation(t):
     return Vector([t[0], -t[2], t[1]])
+
+
 def convert_rotation(r):
     return Quaternion([r[3], r[0], -r[2], r[1]])
+
+
 def convert_scale(s):
     return Vector([s[0], s[2], s[1]])
 
@@ -134,19 +139,20 @@ def bone_trs(op, anim_id, node_id, samplers):
 
     et, er = bone_vnode['bone_tr']
     inv_er, inv_et = er.conjugated(), -et
-    parent_pre_r = bone_vnode['parent'].get('bone_pre_rotation', Quaternion((1,0,0,0)))
+    parent_pre_r = bone_vnode['parent'].get('bone_pre_rotation', Quaternion((1, 0, 0, 0)))
     post_r = parent_pre_r.conjugated()
-    pre_r = bone_vnode.get('bone_pre_rotation', Quaternion((1,0,0,0)))
-    parent_pre_s = bone_vnode['parent'].get('bone_pre_scale', Vector((1,1,1)))
+    pre_r = bone_vnode.get('bone_pre_rotation', Quaternion((1, 0, 0, 0)))
+    parent_pre_s = bone_vnode['parent'].get('bone_pre_scale', Vector((1, 1, 1)))
     post_s = Vector((1/c for c in parent_pre_s))
-    pre_s = bone_vnode.get('bone_pre_scale', Vector((1,1,1)))
+    pre_s = bone_vnode.get('bone_pre_scale', Vector((1, 1, 1)))
 
     if 'translation' in samplers:
         # pt = Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t
         #    = c + m t
         inv_er_mat = inv_er.to_matrix().to_4x4()
         post_s_mat = Matrix.Identity(4)
-        for i in range(0, 3): post_s_mat[i][i] = post_s[i]
+        for i in range(0, 3):
+            post_s_mat[i][i] = post_s[i]
         c = inv_er_mat * inv_et
         m = inv_er_mat * post_s_mat * post_r.to_matrix().to_4x4()
 
@@ -174,7 +180,6 @@ def bone_trs(op, anim_id, node_id, samplers):
             s = convert_scale(s)
             s = Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
             return Vector((post_s[i] * s[i] * pre_s[i] for i in range(0, 3)))
-
 
     bone_name = bone_vnode['blender_name']
     base_path = 'pose.bones[%s]' % quote(bone_name)

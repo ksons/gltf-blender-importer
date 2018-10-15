@@ -4,6 +4,7 @@ from mathutils import Vector
 # represented by the Block class. We can line blocks up in rows, etc. So we use
 # them to make node trees look nice.
 
+
 class Block:
     def __init__(self, *blocks):
         self.children = []
@@ -124,10 +125,12 @@ def top_left(block):
         return block.top_left
     return Vector(block.location)
 
+
 def bottom_right(block):
     if type(block) == Block:
         return Vector(block.bottom_right)
     return block.location + Vector((block.width, -block.height))
+
 
 def move_by(block, delta):
     if type(block) == Block:
@@ -135,19 +138,23 @@ def move_by(block, delta):
     else:
         block.location += delta
 
+
 def width(block):
     tl = top_left(block)
     br = bottom_right(block)
     return br[0] - tl[0]
+
 
 def height(block):
     tl = top_left(block)
     br = bottom_right(block)
     return tl[1] - br[1]
 
+
 def move_to(block, pos):
     delta = pos - top_left(block)
     move_by(block, delta)
+
 
 def center_at_origin(block):
     w, h = width(block), height(block)

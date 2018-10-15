@@ -1,4 +1,5 @@
-import json, os
+import json
+import os
 import bpy
 
 # This file creates the node groups that we use during material creation. Node
@@ -8,8 +9,9 @@ import bpy
 this_dir = os.path.dirname(os.path.abspath(__file__))
 node_groups_path = os.path.join(this_dir, 'groups.json')
 with open(node_groups_path, 'r') as f:
-    f.readline() # throw away comment line
+    f.readline()  # throw away comment line
     GROUP_DATA = json.load(f)
+
 
 def create_group(op, name):
     data = GROUP_DATA[name]
@@ -41,9 +43,12 @@ def create_group(op, name):
     def deserialize_sockets(sockets, ys):
         for y in ys:
             s = sockets.new(y['idname'], y['name'])
-            if 'default_value' in y: s.default_value = y['default_value']
-            if 'min_value' in y: s.min_value = y['min_value']
-            if 'max_value' in y: s.max_value = y['max_value']
+            if 'default_value' in y:
+                s.default_value = y['default_value']
+            if 'min_value' in y:
+                s.min_value = y['min_value']
+            if 'max_value' in y:
+                s.max_value = y['max_value']
 
     deserialize_sockets(inputs, data['inputs'])
     deserialize_sockets(outputs, data['outputs'])
@@ -51,17 +56,21 @@ def create_group(op, name):
     for y in data['nodes']:
         node = nodes.new(y['idname'])
         node.name = y['name']
-        if 'node_tree' in y: node.node_tree = op.get('node_group', y['node_tree'])
+        if 'node_tree' in y:
+            node.node_tree = op.get('node_group', y['node_tree'])
         for attr in [
             'label', 'operation', 'blend_type', 'use_clamp',
             'translation', 'rotation', 'scale'
         ]:
-            if attr in y: setattr(node, attr, y[attr])
+            if attr in y:
+                setattr(node, attr, y[attr])
 
         for i, v in enumerate(y['inputs']):
-            if v != None: node.inputs[i].default_value = v
+            if v != None:
+                node.inputs[i].default_value = v
         for i, v in enumerate(y['outputs']):
-            if v != None: node.outputs[i].default_value = v
+            if v != None:
+                node.outputs[i].default_value = v
 
     for i, y in enumerate(data['nodes']):
         if 'parent' in y:
@@ -99,11 +108,15 @@ def load():
     for name in GROUP_DATA.keys():
         create_group(op, name)
 
+
 def serialize_group(group):
     def val(x):
-        if x == None: return x
-        if type(x) in [int, float, bool, list, str]: return x
-        if hasattr(x, '__len__'): return list(x)
+        if x == None:
+            return x
+        if type(x) in [int, float, bool, list, str]:
+            return x
+        if hasattr(x, '__len__'):
+            return list(x)
         assert(False)
 
     def serialize_sockets(sockets):
@@ -113,9 +126,12 @@ def serialize_group(group):
                 'name': s.name,
                 'idname': s.bl_socket_idname,
             }
-            if hasattr(s, 'default_value'): x['default_value'] = val(s.default_value)
-            if hasattr(s, 'min_value'): x['min_value'] = val(s.min_value)
-            if hasattr(s, 'max_value'): x['max_value'] = val(s.max_value)
+            if hasattr(s, 'default_value'):
+                x['default_value'] = val(s.default_value)
+            if hasattr(s, 'min_value'):
+                x['min_value'] = val(s.min_value)
+            if hasattr(s, 'max_value'):
+                x['max_value'] = val(s.max_value)
             result.append(x)
         return result
 
@@ -138,9 +154,12 @@ def serialize_group(group):
             'outputs': [],
         }
 
-        if node.parent: x['parent'] = node_to_idx[node.parent]
-        if hasattr(node, 'label') and node.label != '': x['label'] = node.label
-        if hasattr(node, 'node_tree'): x['node_tree'] = node.node_tree.name
+        if node.parent:
+            x['parent'] = node_to_idx[node.parent]
+        if hasattr(node, 'label') and node.label != '':
+            x['label'] = node.label
+        if hasattr(node, 'node_tree'):
+            x['node_tree'] = node.node_tree.name
 
         for attr in [
             'operation', 'blend_type', 'use_clamp',
@@ -178,6 +197,7 @@ def serialize_group(group):
         'links': links,
     }
 
+
 def serialize():
     groups = {}
     for group in bpy.data.node_groups:
@@ -191,7 +211,7 @@ def serialize():
         for k in keys:
             json.dump(k, f)
             f.write(':')
-            json.dump(groups[k], f, separators=(',',':'))
+            json.dump(groups[k], f, separators=(',', ':'))
             if k != keys[-1]:
                 f.write(',')
             f.write('\n')

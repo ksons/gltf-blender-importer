@@ -4,6 +4,7 @@ from .curve import Curve
 
 # Morph Weight Animations
 
+
 def add_morph_weight_animation(op, anim_id, node_id, sampler):
     animation = op.gltf['animations'][anim_id]
     vnode = op.id_to_vnode[node_id]

@@ -1,5 +1,6 @@
 from mathutils import Vector, Quaternion, Matrix
 
+
 class Curve:
     @staticmethod
     def for_sampler(op, sampler, num_targets=None):
@@ -15,7 +16,7 @@ class Curve:
         if num_targets != None:
             # Group one frame's worth of morph weights together.
             c.ords = [
-                c.ords[i : i + num_targets]
+                c.ords[i: i + num_targets]
                 for i in range(0, len(c.ords), num_targets)
             ]
 
@@ -45,9 +46,9 @@ class Curve:
                 self.ords[i] = -self.ords[i]
 
     def make_fcurves(self, op, action, data_path,
-        transform=lambda x: x,
-        tangent_transform=None
-    ):
+                     transform=lambda x: x,
+                     tangent_transform=None
+                     ):
         framerate = op.framerate
         times = self.times
         ords = self.ords
@@ -77,9 +78,9 @@ class Curve:
         # Let's us uniformly handle ordinates that are sequences and ordinates
         # that are scalars.
         if num_components == 1:
-            tup = lambda x: (x,)
+            def tup(x): return (x,)
         else:
-            tup = lambda x: x
+            def tup(x): return x
 
         for k, (t, y) in enumerate(zip(times, ords)):
             t = t * framerate
@@ -101,8 +102,8 @@ class Curve:
                     pt.handle_left_type = 'FREE'
                     pt.handle_right_type = 'FREE'
                     # TODO: set tangents somehow
-                    #pt.handle_left = ?
-                    #pt.handle_right = ?
+                    # pt.handle_left = ?
+                    # pt.handle_right = ?
 
         for fcurve in fcurves:
             fcurve.update()

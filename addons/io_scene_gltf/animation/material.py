@@ -2,6 +2,7 @@ import bpy
 from . import quote
 from .curve import Curve
 
+
 def add_material_animation(op, anim_id, material_id, data):
     animation = op.gltf['animations'][anim_id]
     material = op.get('material', material_id)
@@ -17,7 +18,6 @@ def add_material_animation(op, anim_id, material_id, data):
     # Play the first animation by default
     if anim_id == 0:
         node_tree.animation_data_create().action = action
-
 
     # The main group (eg. pbrMetallicRoughness) in every material has name
     # 'main'
@@ -36,7 +36,6 @@ def add_material_animation(op, anim_id, material_id, data):
         'specularFactor': 'SpecularFactor',
         'glossinessFactor': 'GlossinessFactor',
     }
-
 
     fcurves = []
 
@@ -59,7 +58,6 @@ def add_material_animation(op, anim_id, material_id, data):
         for fcurve in fcurves:
             fcurve.group = group
 
-
     for texture_type, samplers in data.get('texture_transform', {}).items():
         base_path = 'nodes[%s]' % quote(texture_type + '_xform')
 
@@ -72,7 +70,7 @@ def add_material_animation(op, anim_id, material_id, data):
 
         if 'rotation' in samplers:
             curve = Curve.for_sampler(op, samplers['rotation'])
-            data_path = [(base_path + '.rotation', 2)] # animate rotation around Z-axis
+            data_path = [(base_path + '.rotation', 2)]  # animate rotation around Z-axis
             fcurves += curve.make_fcurves(op, action, data_path)
 
         if 'scale' in samplers:

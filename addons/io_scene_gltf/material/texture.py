@@ -10,6 +10,8 @@ Block = block.Block
 #    [Texcoord] -> [UV Transform] -> [UV Wrap] -> [Img Texture] ->
 #
 # where some of these sub-blocks may be missing.
+
+
 def create_texture_block(op, material_id, texture_type, tree, info):
     links = tree.links
     texture = op.gltf['textures'][info['index']]
@@ -78,7 +80,6 @@ def create_texture_block(op, material_id, texture_type, tree, info):
         subblock.outputs = [conv_after.outputs[0]]
         subblocks = [subblock] + subblocks
 
-
     if 'sampler' in texture:
         sampler = op.gltf['samplers'][texture['sampler']]
     else:
@@ -91,7 +92,7 @@ def create_texture_block(op, material_id, texture_type, tree, info):
     LINEAR_MIPMAP_NEAREST = 9985
     NEAREST_MIPMAP_LINEAR = 9986
     LINEAR_MIPMAP_LINEAR = 9986
-    AUTO_FILTER = LINEAR # which one to use if unspecified
+    AUTO_FILTER = LINEAR  # which one to use if unspecified
 
     mag_filter = sampler.get('magFilter', AUTO_FILTER)
     min_filter = sampler.get('minFilter', AUTO_FILTER)
@@ -196,14 +197,13 @@ def create_texture_block(op, material_id, texture_type, tree, info):
         subblock.outputs = [com_xyz.outputs[0]]
         subblocks = [subblock] + subblocks
 
-
     # Now we handle the [Texcoord] block. If there is only an [Img Texture]
     # subblock and the texcoord set is 0 (the most common case), we can skip
     # this too, since the Texture Node will pick it up automatically.
     if len(subblocks) == 1 and texcoord_set == 0:
         pass
     else:
-        texcoord_node = tree.nodes.new('ShaderNodeUVMap') # TODO: is this the right kind of node?
+        texcoord_node = tree.nodes.new('ShaderNodeUVMap')  # TODO: is this the right kind of node?
         texcoord_node.uv_map = 'TEXCOORD_%d' % texcoord_set
         subblocks = [texcoord_node] + subblocks
 

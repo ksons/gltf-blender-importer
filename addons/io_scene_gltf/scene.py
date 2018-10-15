@@ -2,6 +2,7 @@ import bpy
 from mathutils import Vector, Matrix
 from .vforest import create_vforest
 
+
 def create_scenes(op):
     create_vforest(op)
     realize_vforest(op)
@@ -55,7 +56,6 @@ def realize_vforest(op):
                     ob.parent_type = 'BONE'
                     ob.parent_bone = vnode['parent']['blender_name']
 
-
         elif vnode['type'] == 'ARMATURE':
             # TODO: don't use ops here
             bpy.ops.object.add(type='ARMATURE', enter_editmode=True)
@@ -67,7 +67,6 @@ def realize_vforest(op):
 
             if vnode['parent']:
                 ob.parent = vnode['parent']['blender_object']
-
 
         elif vnode['type'] == 'BONE':
             armature = vnode['armature_vnode']['blender_armature']
@@ -114,9 +113,9 @@ def realize_vforest(op):
     for root in op.root_vnodes:
         realize_vnode(root)
 
-
     # On the second pass, do things that require us to know the names of the
     # Blender objects we create for each vnode.
+
     def pass2(vnode):
         # Create vertex groups for skinned meshes.
         if 'mesh_instance' in vnode and vnode['mesh_instance']['skin'] != None:
@@ -145,14 +144,12 @@ def realize_vforest(op):
     for root in op.root_vnodes:
         pass2(root)
 
-
     # Warn about non-homogeneous scalings
     if op.bones_with_nonhomogeneous_scales:
         print(
             'WARNING! The following bones had non-homogeneous scalings:',
             *(b['blender_name'] for b in op.bones_with_nonhomogeneous_scales)
         )
-
 
 
 def link_vnode(scene, vnode):
@@ -163,11 +160,13 @@ def link_vnode(scene, vnode):
             # If it's already linked, shut up
             pass
 
+
 def link_tree(scene, vnode):
     """Link all the Blender objects under vnode into the given Blender scene."""
     link_vnode(scene, vnode)
     for child in vnode['children']:
         link_tree(scene, child)
+
 
 def link_forest_into_scenes(op):
     """Link the realized forest into scenes."""
@@ -202,5 +201,3 @@ def link_forest_into_scenes(op):
                 # Select this scene if it is the default
                 if i == default_scene_id:
                     bpy.context.screen.scene = blender_scene
-
-

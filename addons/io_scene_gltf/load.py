@@ -1,5 +1,8 @@
-import os, json, struct
+import os
+import json
+import struct
 from . import GLTF_VERSION, EXTENSIONS
+
 
 def load(op):
     parse_file(op)
@@ -25,8 +28,10 @@ def parse_file(op):
     else:
         parse_gltf(op, contents)
 
+
 def parse_gltf(op, contents):
     op.gltf = json.loads(contents.decode('utf-8'))
+
 
 def parse_glb(op, contents):
     contents = memoryview(contents)
@@ -38,7 +43,7 @@ def parse_glb(op, contents):
         raise Exception('GLB: version not supported: %d' % glb_version)
 
     # Parse the chunks; we only want the JSON and BIN ones
-    offset = 12 # end of header
+    offset = 12  # end of header
     while offset < len(contents):
         length, type = struct.unpack_from('<I4s', contents, offset=offset)
         offset += 8
@@ -65,7 +70,8 @@ def check_version(op):
         """Parse a string like '1.1' to a tuple (1,1)."""
         try:
             version = tuple(int(x) for x in s.split('.'))
-            if len(version) >= 2: return version
+            if len(version) >= 2:
+                return version
         except Exception:
             pass
         raise Exception('unknown version format: %s' % s)
