@@ -94,16 +94,41 @@ class Curve:
             if not tangent_transform:
                 tangent_transform = transform
 
-            for k, (t, a, b) in enumerate(zip(times, self.ins, self.outs)):
-                t = t * framerate
+            # Blender appears to do Hermite spline interpolation of the _graph_
+            # between the points (t1, y1) and (t2, y2), unlike glTF which does
+            # interpolation only of the _ordinates_ y1 and y2. So if this is the
+            # interval between two keyframes at times t1 and t2 with control
+            # points C1 and C2
+            #
+            #                               o C2: (ct2, cy2)
+            #    C1: (ct1, cy1) o            \
+            #                  /              * P2: (t1, y1)
+            #                 /
+            #   P1: (t1, y1) *
+            #
+            # glTF gives us the right derivative at P1, b (= the slope of the
+            # line P1 C1) and the left derivative at P2, a (= the slope of the
+            # line P2 C2). So once we pick ct1 and ct2, cy1 and cy2 follow.
+            #
+            # We pick ct1 and ct2 so that spline interpolation in the
+            # t-direction reduces to just linear interpolation.
+
+            for k in range(0, len(times) - 1):
+                t1, t2 = times[k], times[k + 1]
+                b, a = self.outs[k], self.ins[k + 1]
                 a, b = tup(tangent_transform(a)), tup(tangent_transform(b))
+
+                ct1 = (2 * t1 + t2) / 3
+                ct2 = (t1 + 2 * t2) / 3
+
                 for i in range(0, num_components):
-                    pt = fcurves[i].keyframe_points[k]
-                    pt.handle_left_type = 'FREE'
-                    pt.handle_right_type = 'FREE'
-                    # TODO: set tangents somehow
-                    # pt.handle_left = ?
-                    # pt.handle_right = ?
+                    pt1 = fcurves[i].keyframe_points[k]
+                    pt1.handle_right_type = 'FREE'
+                    pt1.handle_right = ct1 * framerate, pt1.co[1] + (ct1 - t1) * b[i]
+
+                    pt2 = fcurves[i].keyframe_points[k + 1]
+                    pt2.handle_left_type = 'FREE'
+                    pt2.handle_left = ct2 * framerate, pt2.co[1] + (ct2 - t2) * a[i]
 
         for fcurve in fcurves:
             fcurve.update()
