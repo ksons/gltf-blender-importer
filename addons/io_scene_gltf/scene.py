@@ -41,8 +41,9 @@ from mathutils import Matrix, Quaternion, Vector
 #                                         bone -> 3   4 <- bone
 #
 #    Note that nodes all the child nodes of the skin's skeleton node become
-#    bones regardless of whether they're joints in the skin. If two armatures
-#    would overlap, only the ones that is "higher up" is kept.
+#    bones regardless of whether they're joints in the skin. Also note that this
+#    imposes the following limitation on the glTF files we can handle: skins
+#    must not overlap.
 #
 #    Because of this, a glTF that is a root may not correspond to a vnode that
 #    is a root (because a dummy Armature might have been inserted above it).
@@ -112,6 +113,7 @@ def create_vforest(op):
             'name': node.get('name', 'nodes[%d]' % id),
             'parent': None,
             'children': [],
+            'skeleton_root': None,
             'type': 'NORMAL',
             'trs': get_trs(node),
         }
@@ -129,18 +131,14 @@ def create_vforest(op):
 
 
     # Insert armatures for the skins between the root of the skin and their
-    # parent (if any).
+    # parent (if any) and mark bone nodes.
     skins = op.gltf.get('skins', [])
     for skin_id, skin in enumerate(skins):
 
         if 'skeleton' not in skin:
-            # Find the root of the tree that contains the joints (presumably
-            # they must all be in the same tree)
-            vnode = id_to_vnode[skin['joints'][0]]
-            while vnode['parent']: vnode = vnode['parent']
-            skeleton_root = vnode
-        else:
-            skeleton_root = id_to_vnode[skin['skeleton']]
+            raise Exception('unimplemented: skin missing skeleton attribute')
+        skeleton_root_id = skin['skeleton']
+        skeleton_root = id_to_vnode[skeleton_root_id]
 
         def insert_parent(vnode, parent):
             old_parent = vnode['parent']
@@ -163,23 +161,13 @@ def create_vforest(op):
         vnodes.append(armature)
         insert_parent(skeleton_root, armature)
 
-
-    # Mark all the children of armatures as bones and delete any armatures that
-    # are the descendants of other armatures.
-
-    def delete_vnode(vnode):
-        if vnode['parent']:
-            children = vnode['parent']['children']
-            del children[children.index(vnode)]
-        for child in vnode['children']:
-            child.parent = vnode['parent']
-        del vnodes[vnodes.index(vnode)]
-
-    def process_bone(vnode, armature_vnode):
-        if vnode['type'] == 'ARMATURE':
-            delete_vnode(vnode)
-        else:
-            vnode['armature_vnode'] = armature_vnode
+        # Mark all the children of the armature as bones.
+        # We detect overlapping skins and bail in this pass.
+        def mark_bones(vnode):
+            if 'armature_vnode' in vnode:
+                # TODO: we can just merge the armatures...
+                raise Exception('unsupported: a node (ID=%d) belongs to two different skins' % vnode['gltf_id'])
+            vnode['armature_vnode'] = armature
             vnode['type'] = 'BONE'
 
             # Record any non-unit scale so we can report about it later (Blender
@@ -190,24 +178,24 @@ def create_vforest(op):
                     vnode['had_nonunit_scale'] = True
                 vnode['trs'] = (t, r, Vector((1, 1, 1)))
 
-            # A curious fact is that bone positions in Blender are not specified
-            # relative to their parent but relative to the containing armature.
-            # We compute the matrix relative to the armature for each bone here.
-            if vnode['parent'] and vnode['parent']['type'] == 'BONE':
-                mat = vnode['parent']['bone_matrix']
-            else:
-                mat = Matrix.Identity(4)
+            for child in vnode['children']:
+                mark_bones(child)
+
+        mark_bones(skeleton_root)
+
+        # A curious fact is that bone positions in Blender are not specified
+        # relative to their parent but relative to the containing armature. We
+        # compute the matrix relative to the armature for each bone now.
+        def compute_bone_mats(vnode, parent_mat=Matrix.Identity(4)):
+            mat = parent_mat
             if 'trs' in vnode:
-                mat = mat * trs_to_matrix(vnode['trs'])
-            vnode['bone_matrix'] = mat
+                mat = parent_mat * trs_to_matrix(vnode['trs'])
+            if vnode['type'] == 'BONE':
+                vnode['bone_matrix'] = mat
+            for child in vnode['children']:
+                compute_bone_mats(child, Matrix(mat))
 
-        for child in vnode['children']:
-            process_bone(child, armature_vnode)
-
-    armatures_vnodes = [vnode for vnode in vnodes if vnode['type'] == 'ARMATURE']
-    for armature_vnode in armatures_vnodes:
-        for child in armature_vnode['children']:
-            process_bone(child, armature_vnode)
+        compute_bone_mats(armature)
 
 
     # Register the meshes/cameras
@@ -254,18 +242,6 @@ def create_vforest(op):
 def realize_vforest(op):
     """Create actual Blender nodes for the vnodes."""
 
-    # See #16
-    try:
-        bpy.ops.object.mode_set(mode='OBJECT')
-    except Exception:
-        pass
-
-    bone_rotate_mat = op.bone_rotation.to_matrix().to_4x4()
-
-    any_objects_child_of_bone = [False] # detect this case so we can warn later
-    # HACK: the usual wrap-it-in-an-array hack so it can be written to by an
-    # inner function
-
     def realize_vnode(vnode):
         if vnode['type'] == 'NORMAL':
             data = None
@@ -273,14 +249,6 @@ def realize_vforest(op):
                 data = op.get('mesh', vnode['mesh_id'])
             elif 'camera_id' in vnode:
                 data = op.get('camera', vnode['camera_id'])
-
-            name = vnode['name']
-
-            if vnode['parent'] and vnode['parent']['type'] == 'BONE':
-                # We currently don't put this kind of object in the correct place
-                # See TODO below. Mark its name so the user can tell.
-                any_objects_child_of_bone[0] = True
-                name = '[!!] ' + name
 
             ob = bpy.data.objects.new(vnode['name'], data)
             vnode['blender_object'] = ob
@@ -309,7 +277,6 @@ def realize_vforest(op):
                     # We need to apply a translation so the object is at the
                     # head of the bone, not the tail, like it normally is.
                     # TODO!!!!!!!
-                    # NOTE: will probably involve the bone_rotation too.
 
 
         elif vnode['type'] == 'ARMATURE':
@@ -343,14 +310,12 @@ def realize_vforest(op):
                     dist = (our_head - child_head).length
                     if dist != 0:
                         bone_length = dist
-                        break
+                    break
             vnode['bone_length'] = bone_length # record it for our children
 
             bone.head = vnode['bone_matrix'] * Vector((0, 0, 0))
-            forward = bone_rotate_mat * Vector((0, bone_length, 0))
-            side = bone_rotate_mat * Vector((0, 0, 1))
-            bone.tail = vnode['bone_matrix'] * forward
-            bone.align_roll(vnode['bone_matrix'] * side - bone.head)
+            bone.tail = vnode['bone_matrix'] * Vector((0, bone_length, 0))
+            bone.align_roll(vnode['bone_matrix'] * Vector((0, 0, 1)) - bone.head)
 
             vnode['blender_editbone'] = bone
 
@@ -402,8 +367,6 @@ def realize_vforest(op):
             mod.object = op.id_to_vnode[skin['skeleton']]['armature_vnode']['blender_object']
             mod.use_vertex_groups = True
 
-        # TODO: Don't we also need to do something about the skeleton root?
-
         for child in vnode['children']:
             create_vertex_groups(child)
 
@@ -411,14 +374,7 @@ def realize_vforest(op):
         create_vertex_groups(root)
 
 
-    # Report any warnings
-
-    if any_objects_child_of_bone[0]:
-        print(
-            'Some objects (marked with [!!]) are almost surely in the wrong '
-            'position. This is a known issue.'
-        )
-
+    # Finally, report about bones with non-unit scales
     bones_that_had_nonunit_scales = [
         vnode['blender_name']
         for vnode in op.vnodes
@@ -426,11 +382,11 @@ def realize_vforest(op):
     ]
     if bones_that_had_nonunit_scales:
         print(
-            'Warning: the following bones had non-unit scalings '
+            'warning: the following bones had non-unit scalings '
             'which is not allowed: ',
             *bones_that_had_nonunit_scales
         )
-        print('All their rest scalings have been set to 1.')
+        print('all their rest scalings have been set to 1')
 
 
 
@@ -500,9 +456,12 @@ def link_forest_into_scenes(op):
 
                 # A root glTF node isn't necessarily a root vnode.
                 # Find the real root.
-                while vnode['parent']: vnode = vnode['parent']
+                def find_root(vnode):
+                    if vnode['parent'] == None: return vnode
+                    return find_root(vnode['parent'])
+                root_vnode = find_root(vnode)
 
-                link_tree(blender_scene, vnode)
+                link_tree(blender_scene, root_vnode)
 
                 # Select this scene if it is the default
                 if i == default_scene_id:

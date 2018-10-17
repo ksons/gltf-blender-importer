@@ -3,7 +3,6 @@ import json, os, struct
 import bpy
 from bpy.props import StringProperty, BoolProperty, FloatProperty
 from bpy_extras.io_utils import ImportHelper
-from mathutils import Euler
 
 from io_scene_gltf import animation, buffer, camera, material, mesh, scene, node_groups
 
@@ -59,30 +58,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'disabling for low-res models.',
         default=True,
     )
-    bone_rotation_x = FloatProperty(
-        name='Bone Rotation X',
-        description='',
-        default=0.0,
-        step=100,
-        subtype='ANGLE',
-        unit='ROTATION',
-    )
-    bone_rotation_y = FloatProperty(
-        name='Bone Rotation Y',
-        description='',
-        default=0.0,
-        step=100,
-        subtype='ANGLE',
-        unit='ROTATION',
-    )
-    bone_rotation_z = FloatProperty(
-        name='Bone Rotation Z',
-        description='',
-        default=0.0,
-        step=100,
-        subtype='ANGLE',
-        unit='ROTATION',
-    )
     import_animations = BoolProperty(
         name='Import Animations (EXPERIMENTAL)',
         description='',
@@ -119,13 +94,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col = layout.box().column()
         col.label('Mesh:', icon='MESH_DATA')
         col.prop(self, 'smooth_polys')
-
-        col = layout.box().column()
-        col.label('Bones:', icon='BONE_DATA')
-        col.label('(Tweak if bones point wrong)')
-        col.prop(self, 'bone_rotation_x')
-        col.prop(self, 'bone_rotation_y')
-        col.prop(self, 'bone_rotation_z')
 
         col = layout.box().column()
         col.label('Animation:', icon='OUTLINER_DATA_POSE')
@@ -246,11 +214,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         self.smooth_polys = keywords['smooth_polys']
         self.import_animations = keywords['import_animations']
         self.framerate = keywords['framerate']
-        self.bone_rotation = Euler([
-            keywords['bone_rotation_x'],
-            keywords['bone_rotation_y'],
-            keywords['bone_rotation_z'],
-        ])
 
 
 
