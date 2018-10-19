@@ -1,4 +1,6 @@
-import base64, os, struct
+import base64
+import os
+import struct
 
 # This file handles creating buffers, buffer views, and accessors. It's pure
 # python and doesn't depend on Blender at all.
@@ -102,7 +104,7 @@ def create_accessor_from_properties(op, accessor):
         default_stride = 24
 
     normalize = None
-    if 'normalized' in accessor and accessor['normalized']:
+    if accessor.get('normalized', False):
         normalize_lut = dict([
             (5120, lambda x: max(x / (2**7 - 1), -1)),   # BYTE
             (5121, lambda x: x / (2**8 - 1)),            # UNSIGNED_BYTE
@@ -119,21 +121,19 @@ def create_accessor_from_properties(op, accessor):
         stride = default_stride
         buf = b'\0' * (stride * count)
 
-
     # Main decoding loop
     off = accessor.get('byteOffset', 0)
-    result = []
-    while len(result) != count:
-        elem = struct.unpack_from(fmt, buf, offset=off)
-        result.append(elem)
-        off += stride
+    unpack_from = struct.Struct(fmt).unpack_from
+    result = [
+        unpack_from(buf, offset=off+i*stride)
+        for i in range(0, count)
+    ]
     if normalize:
         for i in range(0, count):
             result[i] = tuple([normalize(x) for x in result[i]])
     if num_components == 1:
         for i in range(0, count):
             result[i] = result[i][0]
-
 
     # A sparse property says "change the elements at these indices to these
     # values" where "these" are given in an accessor-like way, so we find the

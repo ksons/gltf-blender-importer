@@ -6,12 +6,12 @@
 Just run
 
 ````
-python run_tests.py
+./test.py run
 ````
 
-The sample models are stored as a git submodule. The first time you run this,
-it will automatically initialize submodules to get the sample files (if
-needed).
+in this directory. The sample models are stored as a git submodule. The first
+time you run this, it will automatically initialize submodules to get the sample
+files (if needed).
 
 ### About
 
@@ -28,4 +28,4 @@ everything's good. They are also written to a JSON file in this directory
 called report.json. You can use this file or the exit code of run_tests.py
 to determine if the tests passed in a script.
 
-Call `python run_tests.py -h` for more help.
+Call `./test.py -h` for more help.
