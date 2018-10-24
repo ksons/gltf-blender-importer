@@ -5,7 +5,7 @@
 Blender importer for glTF 2.0.
 
 ## Installation
-Blender =2.79 is recommended.
+Requires Blender 2.79.
 
 Find the latest archive here:
 

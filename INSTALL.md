@@ -1,68 +1,54 @@
-## For Users
-These are the installation instructions for Blender 2.78, but they should
-work with earlier versions too. This is basically how you install any Blender
-addon.
+See also the [Blender manual on installing
+add-ons](https://docs.blender.org/manual/en/latest/preferences/addons.html).
 
-1. First, get a copy of this repo. You can get one by downloading and
-   unzipping the [ZIP](https://github.com/ksons/gltf-blender-importer/archive/master.zip),
-   or by cloning the Git repo.
+## Installing from a Release Archive
 
-2. Second, find out where your Blender addon folder is. The typical
-   location on each common OS is listed below:
+Download the latest release from the
+[Releases](https://github.com/ksons/gltf-blender-importer/releases) page. It
+should be a ZIP file with a name like `io_scene_gltf-X.Y.Z.zip`.
 
-   * **Windows**, `C:\Users\<YOUR USER NAME>\AppData\Roaming\Blender Foundation\Blender\<YOUR BLENDER VERSION>\scripts\addons\`
-   * **Linux**, `/home/<YOUR USER NAME>/.config/blender/<YOUR BLENDER VERSION>/scripts/addons/`
-   * **macOS**, `/Users/<YOUR USER NAME>/Library/Application Support/Blender/<YOUR BLENDER VERSION>/scripts/addons/`
+Open Blender and select **File > User Preferences**. Change to the **Add-ons**
+tab and select **Install Add-on from File...** at the bottom of the screen. Pick
+the ZIP file you downloaded. The add-on is now installed.
 
-   Alternatively, open Blender, switch to the Python console, and enter
+You still need to activate it. In the **Add-ons** tab, put "gltf" in the search
+box and tick the checkbox next to **Import-Export: glTF 2.0 Importer**.
 
-   ```
-   print(bpy.utils.user_resource('SCRIPTS','addons'))
-   ```
-
-   and it should print the addon folder's location.
-
-3. Copy the `io_scene_gltf` folder from the copy of this repo that you got
-   in step 1 into the addon folder you found in step 2. The addon is now
-   "installed". You can delete your copy of the repo from step 1 now if
-   you like.
-
-4. Open Blender. Select **File > User Preferences** and switch to the
-   **Add-ons** tab. In the search bar, type "gltf". An addon called
-   "Import-Export: glTF 2.0 Importer" should appear (if it doesn't, hit
-   **Refresh** and make sure you did the previous steps correctly). Check
-   the tickbox next to the name. The addon is now "enabled".
-
-   Click **Save User Settings** so Blender will remember that you've enabled
-   it the next time it loads.
-
-5. You're done! You can import glTF files through the **File > Import > glTF
-   JSON** option.
-
-To update, you'll need to repeat steps 1 and 3 (and restart Blender).
+<img src="./doc/addon-install.png"/>
 
 
-## For Developers
-This is the recommended method if you want to develop the addon (it also
-makes upgrading slightly easier).
+## Installing from Source
 
-In step 1, get the repo through git
+Obtain the source code, either by cloning the git repo or downloading a
+[ZIP](https://github.com/ksons/gltf-blender-importer/archive/master.zip) from
+Github. If you want to install from a branch, clone the git repo and check out
+the branch.
 
-    $ git clone https://github.com/ksons/gltf-blender-importer.git
+### Easy way (requires Python)
 
-In step 3, instead of _copying_ the `io_scene_gltf` folder into the addon
-folder, symbolically link it. On Linux, this is done with
+Run the script `make_package.py` found in the top-level directory. A ZIP file
+`io_scene_gltf.zip` will be created in the `dist/` folder. Install this ZIP file
+the same way as described above.
 
-    $ cd <YOUR ADDON FOLDER FROM STEP 2>
-    $ ln -s <PATH TO THE io_scene_gltf FOLDER>
+### Harder way
 
-On Windows, this can also be done with
+Find your Blender add-on directory. It is most commonly:
 
-    $ cd <YOUR ADDON FOLDER FROM STEP 2>
-    $ mklink /J io_scene_gltf <PATH TO THE io_scene_gltf FOLDER>
+* **On Windows**, `C:\Users\<YOUR USER NAME>\AppData\Roaming\Blender
+  Foundation\Blender\<YOUR BLENDER VERSION>\scripts\addons\`
+* **On Linux**, `/home/<YOUR USER NAME>/.config/blender/<YOUR BLENDER
+  VERSION>/scripts/addons/`
+* **On OSX**, `/Users/<YOUR USER NAME>/Library/Application
+  Support/Blender/<YOUR BLENDER VERSION>/scripts/addons/`
 
-You can now edit the addon files, check out a different branch, etc. and you
-just have to restart Blender for it to be using the new version of the
-addon in your repo.
+Alternatively, open Blender, switch to the Python console, and enter `print(bpy.utils.user_resource('SCRIPTS', 'addons'))` to have it printed for you.
 
-To upgrade, just pull the latest version (and restart Blender).
+Then copy the `io_scene_gltf` folder from the `addons` folder in this repo to
+your Blender add-on directory.
+
+Then just activate the add-on in the same way as described above.
+
+**Tip**: If you want to change or contribute to the add-on, I recommend you
+symbolically link (`ln -s`) the `io_scene_gltf` folder into your Blender add-on
+directory instead of copying it. You can then test changes by just restarting
+Blender instead of having to re-install the add-on after each change.
