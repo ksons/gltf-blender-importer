@@ -1,15 +1,9 @@
 import argparse
 import os
-import sys
 import re
 import subprocess
-import shutil
 
-parser = argparse.ArgumentParser()
-parser.add_argument("version")
-
-args = parser.parse_args()
-pathname = os.path.dirname(sys.argv[0])
+import make_package
 
 
 def replace_in_file(file, expr, new_substr):
@@ -24,25 +18,30 @@ def replace_in_file(file, expr, new_substr):
             outfile.write(line)
 
 
-version = args.version.split('.')
-version_string = ".".join(version)
+this_dir = os.path.dirname(os.path.abspath(__file__))
 
-main_file = os.path.join(pathname, 'addons', 'io_scene_gltf', '__init__.py')
-readme_file = os.path.join(pathname, 'README.md')
+parser = argparse.ArgumentParser()
+parser.add_argument('version')
+args = parser.parse_args()
+
+version = args.version.split('.')
+version_string = '.'.join(version)
+version_tuple = '(%s)' % ', '.join(version)
+
+main_file = os.path.join(this_dir, 'addons', 'io_scene_gltf', '__init__.py')
+readme_file = os.path.join(this_dir, 'README.md')
 
 replace_in_file(main_file,
-                '\'version\': \([0-9\, ]*\)',
-                '\'version\': (%s)' % ', '.join(version))
+                r"'version': \([0-9\, ]+\)",
+                "'version': {}".format(version_tuple))
 
 replace_in_file(readme_file,
-                'download/[0-9\.]*/io_scene_gltf-[0-9\.]*zip',
-                'download/{}/io_scene_gltf-{}.zip'.format(version_string, version_string))
+                r'download/v[0-9\.]+/io_scene_gltf-[0-9\.]+.zip',
+                'download/v{}/io_scene_gltf-{}.zip'.format(version_string, version_string))
 
-subprocess.call(["git", "add", main_file, readme_file])
-subprocess.call(["git", "commit", "-m", "Bumb version number to {}".format(version_string)])
-subprocess.call(["git", "tag", "v{}".format(version_string)])
+os.chdir(this_dir)
+subprocess.call(['git', 'add', main_file, readme_file])
+subprocess.call(['git', 'commit', '-m', 'Bump version number to {}'.format(version_string)])
+subprocess.call(['git', 'tag', 'v{}'.format(version_string)])
 
-if not os.path.exists('dist'):
-    os.makedirs('dist')
-shutil.make_archive('dist/io_scene_gltf-{}'.format(version_string), 'zip',
-                    'addons')
+make_package.make_package(suffix=version_string)
