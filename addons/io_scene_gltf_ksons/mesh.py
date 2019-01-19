@@ -150,18 +150,22 @@ def add_in_primitive(op, bme, primitive, material_index):
     vert_edges = [tuple(prim2vert[x] for x in y) for y in edges]
     vert_tris = [tuple(prim2vert[x] for x in y) for y in tris]
 
-    # Finally create a tmp mesh with all our vertices and add it to bme.
+    # Finally create a tmp mesh with all our vertices.
     tmp_mesh = bpy.data.meshes.new('##tmp-mesh##')
     tmp_mesh.from_pydata(verts, vert_edges, vert_tris)
     tmp_mesh.validate()
+
+    faces_off = len(bme.faces)
+
+    # Add everything to the bmesh.
     bme.from_mesh(tmp_mesh)
     bpy.data.meshes.remove(tmp_mesh)
-
     bme.verts.ensure_lookup_table()
+    bme.faces.ensure_lookup_table()
 
-    # Set the material index
-    for face in bme.faces:
-        face.material_index = material_index
+    # Set the material index on the faces we just added.
+    for i in range(faces_off, len(bme.faces)):
+        bme.faces[i].material_index = material_index
 
     # Set normals
     if 'NORMAL' in attributes:
