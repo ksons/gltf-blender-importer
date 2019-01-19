@@ -87,7 +87,7 @@ def cmd_run(args):
             '-noaudio',  # sound ssystem to None (less output on stdout)
             '--background',  # run UI-less
             '--factory-startup',  # factory settings
-            '--addons', 'io_scene_gltf',  # enable the addon
+            '--addons', 'io_scene_gltf_ksons',  # enable the addon
             '--python', test_script  # run the test script
         ],
         env=env,

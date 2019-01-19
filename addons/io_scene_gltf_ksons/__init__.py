@@ -8,11 +8,11 @@ from bpy_extras.io_utils import ImportHelper
 from mathutils import Euler
 
 bl_info = {
-    'name': 'glTF 2.0 Importer',
+    'name': "KSons' glTF 2.0 Importer",
     'author': 'Kristian Sons (ksons), scurest',
     'blender': (2, 79, 0),
     'version': (0, 4, 0),
-    'location': 'File > Import > glTF JSON (.gltf/.glb)',
+    'location': "File > Import > KSons' glTF 2.0 (.glb/.gltf)",
     'description': 'Importer for the glTF 2.0 file format.',
     'warning': '',
     'wiki_url': 'https://github.com/ksons/gltf-blender-importer/blob/master/README.md',
@@ -37,7 +37,9 @@ from . import animation, buffer, camera, material, mesh, scene, light, load
 
 
 class ImportGLTF(bpy.types.Operator, ImportHelper):
-    bl_idname = 'import_scene.gltf'
+    """Load a glTF 2.0 file."""
+
+    bl_idname = 'import_scene.gltf_ksons'
     bl_label = 'Import glTF'
 
     filename_ext = '.gltf'
@@ -176,7 +178,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
 # Add to a menu
 def menu_func_import(self, context):
-    self.layout.operator(ImportGLTF.bl_idname, text='glTF JSON (.gltf/.glb)')
+    self.layout.operator(ImportGLTF.bl_idname, text="KSons' glTF 2.0 (.glb/.gltf)")
 
 
 def register():

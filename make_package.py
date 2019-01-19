@@ -12,11 +12,11 @@ def make_package(suffix=None):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         shutil.copytree(
-            os.path.join(this_dir, 'addons', 'io_scene_gltf'),
-            os.path.join(tmpdir, 'io_scene_gltf'),
+            os.path.join(this_dir, 'addons', 'io_scene_gltf_ksons'),
+            os.path.join(tmpdir, 'io_scene_gltf_ksons'),
             ignore=shutil.ignore_patterns('__pycache__'))
 
-        zip_name = 'io_scene_gltf'
+        zip_name = 'io_scene_gltf_ksons'
         if suffix:
             zip_name += '-' + suffix
 

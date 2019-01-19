@@ -21,7 +21,7 @@ def run_tests():
     sys.stderr.write(filename)
 
     bpy.ops.wm.read_factory_settings()
-    bpy.ops.import_scene.gltf(filepath=filename)
+    bpy.ops.import_scene.kson_gltf(filepath=filename)
 
 
 def main():

@@ -24,7 +24,7 @@ def test_generator(filename):
                 '--python-exit-code', '1',
                 '--background',  # run UI-less
                 '--factory-startup',  # factory settings
-                '--addons', 'io_scene_gltf',  # enable the addon
+                '--addons', 'io_scene_gltf_ksons',  # enable the addon
                 '--python', test_script,  # run the test script
                 '-noaudio',
                 '--',

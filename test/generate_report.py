@@ -38,7 +38,7 @@ for filename in files:
 
     try:
         start_time = timer()
-        bpy.ops.import_scene.gltf(filepath=filename)
+        bpy.ops.import_scene.gltf_ksons(filepath=filename)
         end_time = timer()
         print('[PASSED]\n')
         test = {
