@@ -50,7 +50,7 @@ def create_material(op, idx):
 
     output = tree.nodes.new('ShaderNodeOutputMaterial')
     output.width, output.height = 140, 89.75
-    output.location = 325, -50
+    output.location = 625, -50
     links.new(g.outputs[0], output.inputs[0])
 
     right_block = Block(g, output)
@@ -64,7 +64,6 @@ def create_material(op, idx):
         def mog_alpha(rgba): return rgba
     else:
         print('unsupported alpha mode: %s' % alpha_mode)
-
         def mog_alpha(rgba): return rgba
 
     if alpha_mode == 'MASK':
@@ -139,13 +138,17 @@ def create_material(op, idx):
             tex.color_space = 'COLOR'
             if alpha_mode != 'OPAQUE':
                 links.new(tex.outputs[1], g.inputs['Alpha'])
+        elif input == 'MetallicRoughness':
+            tex.color_space = 'NONE'
         elif input == 'Specular':
             tex.color_space = 'COLOR'
             links.new(tex.outputs[1], g.inputs['Glossiness'])
         elif input == 'Normal':
+            tex.color_space = 'NONE'
             if 'scale' in material['normalTexture']:
                 g.inputs['NormalScale'].default_value = material['normalTexture']['scale']
         elif input == 'Occlusion':
+            tex.color_space = 'NONE'
             if 'strength' in material['occlusionTexture']:
                 g.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
         elif input == 'Emissive':
@@ -171,7 +174,7 @@ def create_material(op, idx):
     #     | Input | |   |
     #     '-------' '---'
     left_block = Block.col_align_right(input_blocks, gutter=70)
-    whole = Block.row_align_center([left_block, right_block], gutter=200)
+    whole = Block.row_align_center([left_block, right_block], gutter=600)
     block.center_at_origin(whole)
 
     return mat
