@@ -121,19 +121,29 @@ def create_accessor_from_properties(op, accessor):
         stride = default_stride
         buf = b'\0' * (stride * count)
 
-    # Main decoding loop
     off = accessor.get('byteOffset', 0)
-    unpack_from = struct.Struct(fmt).unpack_from
-    result = [
-        unpack_from(buf, offset=off+i*stride)
-        for i in range(0, count)
-    ]
-    if normalize:
-        for i in range(0, count):
-            result[i] = tuple([normalize(x) for x in result[i]])
-    if num_components == 1:
-        for i in range(0, count):
-            result[i] = result[i][0]
+
+    # Main decoding loop (this is hot, so try to make it fast)
+    # Interpret buf as elems seperated by padding for the stride
+    #    |elem|xx|elem|xx|elem|xx|elem|
+    # Read count-1 |elem|xx| blocks, followed by one |elem|
+    elem_byte_len = struct.calcsize(fmt)
+    assert(stride >= elem_byte_len)
+    padded_fmt = fmt + (stride - elem_byte_len) * 'x'
+    unpack_iter = struct.Struct(padded_fmt).iter_unpack(buf[off:off + (count - 1) * stride])
+    last = struct.unpack_from(fmt, buf, offset=off + (count - 1) * stride)
+    if normalize and num_components == 1:
+        result = [normalize(x[0]) for x in unpack_iter]
+        result.append(normalize(last[0]))
+    elif normalize:
+        result = [tuple(normalize(y) for y in x)  for x in unpack_iter]
+        result.append(tuple(normalize(y) for y in last))
+    elif num_components == 1:
+        result = [x[0] for x in unpack_iter]
+        result.append(last[0])
+    else:
+        result = list(unpack_iter)
+        result.append(last)
 
     # A sparse property says "change the elements at these indices to these
     # values" where "these" are given in an accessor-like way, so we find the
