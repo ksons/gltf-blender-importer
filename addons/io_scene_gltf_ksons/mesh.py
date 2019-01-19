@@ -33,7 +33,7 @@ def create_mesh(op, idx):
         material = op.get('material', primitive.get('material', 'default_material'))
         material_idx = materials.index(material)
 
-        add_in_primitive(op, bme, primitive, material_idx)
+        add_primitive_to_bmesh(op, bme, primitive, material_idx)
 
     name = mesh.get('name', 'meshes[%d]' % idx)
     me = bpy.data.meshes.new(name)
@@ -100,13 +100,14 @@ def get_layer(bme_layers, name):
     return bme_layers[name]
 
 
-def add_in_primitive(op, bme, primitive, material_index):
-    """Adds the data for a glTF primitive into a bmesh."""
+def add_primitive_to_bmesh(op, bme, primitive, material_index):
+    """Adds a glTF primitive into a bmesh."""
     attributes = primitive['attributes']
 
     # Early out if there's no POSITION data
     if 'POSITION' not in attributes:
         return
+
     positions = op.get('accessor', attributes['POSITION'])
 
     if 'indices' in primitive:
@@ -114,69 +115,80 @@ def add_in_primitive(op, bme, primitive, material_index):
     else:
         indices = range(0, len(positions))
 
-    # Every primitive adds in a set of vertices to the bmesh. Each vertex has an
-    # index in the bme.verts array, its bl_idx, and another in the arrays of
-    # primitive attributes, its prim_idx.
-    #
-    # bl2prim contains pairs (bl_idx, prim_idx) for every vertex we'll add in,
-    # ordered by bl_idx (the bl_idxs form a contiguous interval).
-    #
-    # Note that only vertices that show up the indices array actually get put
-    # into the mesh and thus have a bl_idx! See #27.
-    bl2prim = []
-    used_prim_idxs = set(indices)
-    bl_idx = len(bme.verts)
-    for prim_idx in range(0, len(positions)):
-        if prim_idx in used_prim_idxs:
-            bl2prim.append((bl_idx, prim_idx))
-            bl_idx += 1
+    bme_verts = bme.verts
+    bme_edges = bme.edges
+    bme_faces = bme.faces
 
-    # Generate the topology (in terms of prim_idxs)
+    # The primitive stores vertex attributes in arrays and gives indices into
+    # those arrays
+    #
+    #     Attributes:
+    #       v0 v1 v2 v3 v4 ...
+    #     Indices:
+    #       1 2 4 ...
+    #
+    # We want to add **only those vertices that are used in an edge/tri** to the
+    # bmesh. Because of this and because the bmesh already has some vertices,
+    # when we add the new vertices their index in the bmesh will be different
+    # than their index in the primitive's vertex attribute arrays
+    #
+    #     Bmesh:
+    #       ...pre-existing vertices... v1 v2 v4 ...
+    #
+    # The index into the primitive's vertex attribute array is called the
+    # vertex's p-index (pidx) and the index into the bmesh is called its b-index
+    # (bidx). Remember to use the right index!
+
+    # The pidx of all the vertices that are actually used by the primitive
+    used_pidxs = set(indices)
+    # Contains a pair (bidx, pidx) for every vertex in the primitive
+    vert_idxs = []
+    # pidx_to_bidx[pidx] is the bidx of the vertex with pidx (or -1 if unused)
+    pidx_to_bidx = [-1] * len(positions)
+    bidx = len(bme_verts)
+    for pidx in range(0, len(positions)):
+        if pidx in used_pidxs:
+            bme_verts.new(convert_coordinates(positions[pidx]))
+            vert_idxs.append((bidx, pidx))
+            pidx_to_bidx[pidx] = bidx
+            bidx += 1
+    bme_verts.ensure_lookup_table()
+
+    # Add edges/faces to bmesh
     mode = primitive.get('mode', 4)
     edges, tris = edges_and_tris(indices, mode)
-
-    # verts is a list of the positions of the vertices we'll add in.
-    verts = [
-        convert_coordinates(positions[prim_idx])
-        for bl_idx, prim_idx in bl2prim
-    ]
-    # We need to gives edges and faces in terms of indices into verts.
-    # First build a table mapping prim_idxs to vert_idxs.
-    prim2vert = [-1] * len(positions)
-    first_bl_idx = len(bme.verts)
-    for bl_idx, prim_idx in bl2prim:
-        vert_idx = bl_idx - first_bl_idx
-        prim2vert[prim_idx] = vert_idx
-    vert_edges = [tuple(prim2vert[x] for x in y) for y in edges]
-    vert_tris = [tuple(prim2vert[x] for x in y) for y in tris]
-
-    # Finally create a tmp mesh with all our vertices.
-    tmp_mesh = bpy.data.meshes.new('##tmp-mesh##')
-    tmp_mesh.from_pydata(verts, vert_edges, vert_tris)
-    tmp_mesh.validate()
-
-    faces_off = len(bme.faces)
-
-    # Add everything to the bmesh.
-    bme.from_mesh(tmp_mesh)
-    bpy.data.meshes.remove(tmp_mesh)
-    bme.verts.ensure_lookup_table()
-    bme.faces.ensure_lookup_table()
-
-    # Set the material index on the faces we just added.
-    for i in range(faces_off, len(bme.faces)):
-        bme.faces[i].material_index = material_index
+    # NOTE: edges and vertices are in terms of pidxs
+    for edge in edges:
+        try:
+            bme_edges.new((
+                bme_verts[pidx_to_bidx[edge[0]]],
+                bme_verts[pidx_to_bidx[edge[1]]],
+            ))
+        except ValueError:
+            # Ignores dulicate/degenerate edges
+            pass
+    for tri in tris:
+        try:
+            tri = bme_faces.new((
+                bme_verts[pidx_to_bidx[tri[0]]],
+                bme_verts[pidx_to_bidx[tri[1]]],
+                bme_verts[pidx_to_bidx[tri[2]]],
+            ))
+            tri.material_index = material_index
+        except ValueError:
+            # Ignores dulicate/degenerate tris
+            pass
 
     # Set normals
     if 'NORMAL' in attributes:
         normals = op.get('accessor', attributes['NORMAL'])
-        for bl_idx, prim_idx in bl2prim:
-            bme.verts[bl_idx].normal = convert_coordinates(normals[prim_idx])
+        for bidx, pidx in vert_idxs:
+            bme_verts[bidx].normal = convert_coordinates(normals[pidx])
 
-    # Set vertex colors
-    k = 0
-    while 'COLOR_%d' % k in attributes:
-        layer_name = 'COLOR_%d' % k
+    # Set vertex colors. Add them in the order COLOR_0, COLOR_1, etc.
+    set_num = 0
+    while 'COLOR_%d' % set_num in attributes:
+        layer_name = 'COLOR_%d' % set_num
         layer = get_layer(bme.loops.layers.color, layer_name)
 
         colors = op.get('accessor', attributes[layer_name])
@@ -190,49 +202,49 @@ def add_in_primitive(op, bme, primitive, material_index):
                 print("Your Blender version doesn't support RGBA vertex colors. Upgrade!")
                 colors = [color[:3] for color in colors]
 
-        for bl_idx, prim_idx in bl2prim:
-            for loop in bme.verts[bl_idx].link_loops:
-                loop[layer] = colors[prim_idx]
+        for bidx, pidx in vert_idxs:
+            for loop in bme_verts[bidx].link_loops:
+                loop[layer] = colors[pidx]
 
-        k += 1
+        set_num += 1
 
     # Set texcoords
-    k = 0
-    while 'TEXCOORD_%d' % k in attributes:
-        layer_name = 'TEXCOORD_%d' % k
+    set_num = 0
+    while 'TEXCOORD_%d' % set_num in attributes:
+        layer_name = 'TEXCOORD_%d' % set_num
         layer = get_layer(bme.loops.layers.uv, layer_name)
 
         uvs = op.get('accessor', attributes[layer_name])
 
-        for bl_idx, prim_idx in bl2prim:
+        for bidx, pidx in vert_idxs:
             # UV transform
-            u, v = uvs[prim_idx]
+            u, v = uvs[pidx]
             uv = (u, 1 - v)
 
-            for loop in bme.verts[bl_idx].link_loops:
+            for loop in bme_verts[bidx].link_loops:
                 loop[layer].uv = uv
 
-        k += 1
+        set_num += 1
 
     # Set joints/weights for skinning (multiple sets allow > 4 influences)
     # TODO: multiple sets are untested!
     joint_sets = []
     weight_sets = []
-    k = 0
-    while 'JOINTS_%d' % k in attributes and 'WEIGHTS_%d' % k in attributes:
-        joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % k]))
-        weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % k]))
-        k += 1
+    set_num = 0
+    while 'JOINTS_%d' % set_num in attributes and 'WEIGHTS_%d' % set_num in attributes:
+        joint_sets.append(op.get('accessor', attributes['JOINTS_%d' % set_num]))
+        weight_sets.append(op.get('accessor', attributes['WEIGHTS_%d' % set_num]))
+        set_num += 1
     if joint_sets:
         layer = get_layer(bme.verts.layers.deform, 'Vertex Weights')
 
         for joint_set, weight_set in zip(joint_sets, weight_sets):
-            for bl_idx, prim_idx in bl2prim:
+            for bidx, pidx in vert_idxs:
                 for j in range(0, 4):
-                    weight = weight_set[prim_idx][j]
+                    weight = weight_set[pidx][j]
                     if weight != 0.0:
-                        joint = joint_set[prim_idx][j]
-                        bme.verts[bl_idx][layer][joint] = weight
+                        joint = joint_set[pidx][j]
+                        bme_verts[bidx][layer][joint] = weight
 
     # Set morph target positions (we don't handle normals/tangents)
     for k, target in enumerate(primitive.get('targets', [])):
@@ -243,14 +255,18 @@ def add_in_primitive(op, bme, primitive, material_index):
 
         morph_positions = op.get('accessor', target['POSITION'])
 
-        for bl_idx, prim_idx in bl2prim:
-            bme.verts[bl_idx][layer] = convert_coordinates(
-                Vector(positions[prim_idx]) +
-                Vector(morph_positions[prim_idx])
+        for bidx, pidx in vert_idxs:
+            bme_verts[bidx][layer] = convert_coordinates(
+                Vector(positions[pidx]) +
+                Vector(morph_positions[pidx])
             )
 
 
 def edges_and_tris(indices, mode):
+    """
+    Convert the indices for different primitive modes into a list of edges
+    (pairs of endpoints) and a list of tris (triples of vertices).
+    """
     edges = []
     tris = []
     # TODO: only mode TRIANGLES is tested!!
