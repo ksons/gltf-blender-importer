@@ -445,7 +445,7 @@ def adjust_instances(op):
             r *= x_rot
         elif inst_kind == 'light_instance':
             id = inst['light']
-            lights = op.gltf['extenions']['KHR_lights_punctual']['lights']
+            lights = op.gltf['extensions']['KHR_lights_punctual']['lights']
             name = lights[id].get('name', 'lights[%d]' % id)
             r *= x_rot
         else:
