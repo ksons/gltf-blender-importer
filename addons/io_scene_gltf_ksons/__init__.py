@@ -92,7 +92,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     import_animations = BoolProperty(
         name='Import Animations',
         description='',
-        default=False,
+        default=True,
     )
     framerate = FloatProperty(
         name='Frames/second',
