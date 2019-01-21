@@ -7,10 +7,10 @@ from .curve import Curve
 
 def add_morph_weight_animation(op, anim_id, node_id, sampler):
     animation = op.gltf['animations'][anim_id]
-    vnode = op.id_to_vnode[node_id]
-    if 'mesh_instance_moved_to' in vnode:
-        vnode = vnode['mesh_instance_moved_to']
-    blender_object = vnode['blender_object']
+    vnode = op.node_id_to_vnode[node_id]
+    if vnode.mesh_moved_to:
+        vnode = vnode.mesh_moved_to
+    blender_object = vnode.blender_object
 
     if not blender_object.data.shape_keys:
         # Can happen if the mesh has only non-POSITION morph targets so we
@@ -18,7 +18,7 @@ def add_morph_weight_animation(op, anim_id, node_id, sampler):
         return
 
     # Create action
-    name = "%s@%s (Morph)" % (
+    name = '%s@%s (Morph)' % (
         animation.get('name', 'animations[%d]' % anim_id),
         blender_object.name,
     )

@@ -8,7 +8,7 @@ from .curve import Curve
 
 
 def add_node_trs_animation(op, anim_id, node_id, samplers):
-    if op.id_to_vnode[node_id]['type'] == 'BONE':
+    if op.node_id_to_vnode[node_id].type == 'BONE':
         bone_trs(op, anim_id, node_id, samplers)
     else:
         object_trs(op, anim_id, node_id, samplers)
@@ -30,8 +30,8 @@ def convert_scale(s):
 def object_trs(op, animation_id, node_id, samplers):
     # Create action
     animation = op.gltf['animations'][animation_id]
-    blender_object = op.id_to_vnode[node_id]['blender_object']
-    name = "%s@%s" % (
+    blender_object = op.node_id_to_vnode[node_id].blender_object
+    name = '%s@%s' % (
         animation.get('name', 'animations[%d]' % animation_id),
         blender_object.name,
     )
@@ -79,13 +79,13 @@ def bone_trs(op, anim_id, node_id, samplers):
     # for the whole armature. To handle this, we store a cache of the action for
     # each animation in the armature's vnode and create one when we first
     # animate a bone in that armature.
-    bone_vnode = op.id_to_vnode[node_id]
-    armature_vnode = bone_vnode['armature_vnode']
-    action_cache = armature_vnode.setdefault('action_cache', {})
+    bone_vnode = op.node_id_to_vnode[node_id]
+    armature_vnode = bone_vnode.armature_vnode
+    action_cache = armature_vnode.armature_action_cache
     if anim_id not in action_cache:
-        name = "%s@%s" % (
+        name = '%s@%s' % (
             op.gltf['animations'][anim_id].get('name', 'animations[%d]' % anim_id),
-            armature_vnode['blender_armature'].name,
+            armature_vnode.blender_armature.name,
         )
         action = bpy.data.actions.new(name)
         action_cache[anim_id] = action
@@ -93,7 +93,7 @@ def bone_trs(op, anim_id, node_id, samplers):
 
         # Play the first animation by default
         if anim_id == 0:
-            bl_object = armature_vnode['blender_object']
+            bl_object = armature_vnode.blender_object
             bl_object.animation_data_create().action = action
 
     action = action_cache[anim_id]
@@ -137,22 +137,22 @@ def bone_trs(op, anim_id, node_id, samplers):
     # only on s (ignoring constants), so each curve only has its ordinates
     # changed and they are still independent and don't need to be resampled.
 
-    et, er = bone_vnode['bone_tr']
+    et, er = bone_vnode.editbone_tr
     inv_er, inv_et = er.conjugated(), -et
-    parent_pre_r = bone_vnode['parent'].get('bone_pre_rotation', Quaternion((1, 0, 0, 0)))
+
+    parent_pre_r = bone_vnode.parent.correction_rotation
+    parent_pre_s = bone_vnode.parent.correction_homscale
     post_r = parent_pre_r.conjugated()
-    pre_r = bone_vnode.get('bone_pre_rotation', Quaternion((1, 0, 0, 0)))
-    parent_pre_s = bone_vnode['parent'].get('bone_pre_scale', Vector((1, 1, 1)))
-    post_s = Vector((1/c for c in parent_pre_s))
-    pre_s = bone_vnode.get('bone_pre_scale', Vector((1, 1, 1)))
+    post_s = 1 / parent_pre_s
+
+    pre_r = bone_vnode.correction_rotation
+    pre_s = bone_vnode.correction_homscale
 
     if 'translation' in samplers:
         # pt = Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t
         #    = c + m t
         inv_er_mat = inv_er.to_matrix().to_4x4()
-        post_s_mat = Matrix.Identity(4)
-        for i in range(0, 3):
-            post_s_mat[i][i] = post_s[i]
+        post_s_mat = post_s * Matrix.Identity(4)
         c = inv_er_mat * inv_et
         m = inv_er_mat * post_s_mat * post_r.to_matrix().to_4x4()
 
@@ -174,14 +174,14 @@ def bone_trs(op, anim_id, node_id, samplers):
 
     if 'scale' in samplers:
         # ps = post_s * s' * pre_s
-        perm = bone_vnode['bone_pre_perm']
+        perm = bone_vnode.correction_rotation_permutation
 
         def transform_scale(s):
             s = convert_scale(s)
             s = Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
-            return Vector((post_s[i] * s[i] * pre_s[i] for i in range(0, 3)))
+            return post_s * pre_s * s
 
-    bone_name = bone_vnode['blender_name']
+    bone_name = bone_vnode.blender_name
     base_path = 'pose.bones[%s]' % quote(bone_name)
 
     fcurves = []
