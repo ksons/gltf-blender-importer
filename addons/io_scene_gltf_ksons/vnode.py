@@ -1,5 +1,6 @@
 from math import pi
 from mathutils import Matrix, Quaternion, Vector, Euler
+from .compat import mul
 
 # The node graph in glTF needs to fixed up quite a bit before it will work for
 # Blender. We first create a graph of "virtual nodes" to match the graph in the
@@ -420,9 +421,9 @@ def adjust_bones(op):
         post_homscale = 1 / vnode.parent.correction_homscale
         # Rot[post_rotate] Scale[post_scale] Trans[t] Rot[r] Scale[s] =
         # Trans[Rot[post_rotate] Scale[post_scale] t] Rot[post_rotate * r] Scale[post_scale * s]
-        t = post_rotation.to_matrix() * t
+        t = mul(post_rotation.to_matrix(), t)
         t = post_homscale * t
-        r = post_rotation * r
+        r = mul(post_rotation, r)
         s = post_homscale * s
 
         # Choose a pre-scaling that will cancel out our scaling, s.
@@ -458,12 +459,12 @@ def adjust_bones(op):
         vnode.correction_rotation_permutation = pre_perm
 
         # Apply the pre-rotation.
-        r *= pre_rotation
+        r = mul(r, pre_rotation)
 
         vnode.editbone_tr = t, r
-        vnode.editbone_local_to_armature = (
-            vnode.parent.editbone_local_to_armature *
-            Matrix.Translation(t) * r.to_matrix().to_4x4()
+        vnode.editbone_local_to_armature = mul(
+            vnode.parent.editbone_local_to_armature,
+            mul(Matrix.Translation(t), r.to_matrix().to_4x4())
         )
 
         interbone_dists.append(t.length)

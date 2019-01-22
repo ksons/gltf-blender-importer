@@ -75,10 +75,10 @@ def bmesh_to_mesh(bme, me):
         # have to do it by hand. The only way I could find to create a shape key
         # was to temporarily parent me to an object and use obj.shape_key_add.
         dummy_ob = bpy.data.objects.new('##dummy-object##', me)
-        dummy_ob.shape_key_add('Basis')
+        dummy_ob.shape_key_add(name='Basis')
         me.shape_keys.name = me.name
         for layer_name in bme.verts.layers.shape.keys():
-            dummy_ob.shape_key_add(layer_name)
+            dummy_ob.shape_key_add(name=layer_name)
             key_block = me.shape_keys.key_blocks[layer_name]
             layer = bme.verts.layers.shape[layer_name]
 

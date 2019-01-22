@@ -2,6 +2,7 @@ from mathutils import Vector, Quaternion, Matrix
 import bpy
 from . import quote
 from .curve import Curve
+from ..compat import mul
 
 # Handles animating TRS properties for glTF nodes. In Blender, this can be
 # either an object or a bone.
@@ -153,24 +154,24 @@ def bone_trs(op, anim_id, node_id, samplers):
         #    = c + m t
         inv_er_mat = inv_er.to_matrix().to_4x4()
         post_s_mat = post_s * Matrix.Identity(4)
-        c = inv_er_mat * inv_et
-        m = inv_er_mat * post_s_mat * post_r.to_matrix().to_4x4()
+        c = mul(inv_er_mat, inv_et)
+        m = mul(mul(inv_er_mat, post_s_mat), post_r.to_matrix().to_4x4())
 
-        def transform_translation(t): return c + m * convert_translation(t)
+        def transform_translation(t): return c + mul(m, convert_translation(t))
 
         # In order to transform the tangents for cubic interpolation, we need to
         # know how the derivative transforms too. The other transforms are
         # linear, so their derivatives change the same way they do, but
         # transform_translation is affine, so its derivative changes by its
         # underlying linear map.
-        def transform_velocity(t): return m * convert_translation(t)
+        def transform_velocity(t): return mul(m, convert_translation(t))
 
     if 'rotation' in samplers:
         # pt = er^{-1} * post_r * r * pre_r
         #    = d * r * pre_r
-        d = inv_er * post_r
+        d = mul(inv_er, post_r)
 
-        def transform_rotation(r): return d * convert_rotation(r) * pre_r
+        def transform_rotation(r): return mul(mul(d, convert_rotation(r)), pre_r)
 
     if 'scale' in samplers:
         # ps = post_s * s' * pre_s

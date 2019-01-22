@@ -3,6 +3,8 @@ from . import block
 from .texture import create_texture_block
 Block = block.Block
 
+# FIXME: metallic-roughness materials are all-black in Blender 2.8's LookDev
+# mode (but they're fine in the Rendered view)
 
 def create_material(op, idx):
     """Create a Blender material for the glTF materials[idx]. If idx is the
@@ -70,16 +72,19 @@ def create_material(op, idx):
         g.inputs['AlphaMode'].default_value = 1.0
 
     # This is only used in the Material view
-    game_alpha_mode = {
+    blend_mode = {
         'OPAQUE': 'OPAQUE',
         'MASK': 'CLIP',
         'BLEND': 'ALPHA',
     }.get(alpha_mode, 'OPAQUE')
-    if not material.get('doubleSided', False) and game_alpha_mode == 'OPAQUE':
+    if not material.get('doubleSided', False) and blend_mode == 'OPAQUE':
         # Culling is emulated by making backfacing faces transparent, so we need
         # to enable alpha to get that to work
-        game_alpha_mode = 'CLIP'
-    mat.game_settings.alpha_blend = game_alpha_mode
+        blend_mode = 'CLIP'
+    if bpy.app.version >= (2, 80, 0):
+        mat.blend_method = blend_mode
+    else:
+        mat.game_settings.alpha_blend = blend_mode
 
     def set_value(obj, key, input_name, mog=lambda x: x):
         if key in obj and input_name in g.inputs:

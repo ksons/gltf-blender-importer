@@ -1,5 +1,6 @@
 import bpy
 from mathutils import Vector, Matrix
+from .compat import mul
 
 
 def realize_vtree(op):
@@ -29,8 +30,14 @@ def realize_vtree(op):
         if vnode.type == 'ARMATURE':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-            # We'll link this in the right place later on.
-            bpy.context.scene.objects.unlink(vnode.blender_object)
+            # Unlink it; we'll link this in the right place later on.
+            if bpy.app.version >= (2, 80, 0):
+                ob_collection = bpy.context.scene.collection.objects
+                if vnode.blender_object.name in ob_collection:
+                    ob_collection.unlink(vnode.blender_object)
+            else:
+                bpy.context.scene.objects.unlink(vnode.blender_object)
+
 
     realize_vnode(op.root_vnode)
 
@@ -44,7 +51,7 @@ def realize_vtree(op):
             joints = op.gltf['skins'][vnode.mesh['skin']]['joints']
             for node_id in joints:
                 bone_name = op.node_id_to_vnode[node_id].blender_name
-                obj.vertex_groups.new(bone_name)
+                obj.vertex_groups.new(name=bone_name)
 
             # Create the skin modifier.
             modifier = obj.modifiers.new('Skin', 'ARMATURE')
@@ -132,9 +139,9 @@ def realize_bone(op, vnode):
     # but by giving their head, tail, and roll in armature space. So we need the
     # local-to-armature transform.
     m = vnode.editbone_local_to_armature
-    editbone.head = m * Vector((0, 0, 0))
-    editbone.tail = m * Vector((0, vnode.bone_length, 0))
-    editbone.align_roll(m * Vector((0, 0, 1)) - editbone.head)
+    editbone.head = mul(m, Vector((0, 0, 0)))
+    editbone.tail = mul(m, Vector((0, vnode.bone_length, 0)))
+    editbone.align_roll(mul(m, Vector((0, 0, 1))) - editbone.head)
 
     vnode.blender_name = editbone.name
     # NOTE: can't access this after we leave edit mode

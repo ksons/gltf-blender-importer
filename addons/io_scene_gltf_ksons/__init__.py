@@ -10,7 +10,7 @@ from mathutils import Euler
 bl_info = {
     'name': "KSons' glTF 2.0 Importer",
     'author': 'Kristian Sons (ksons), scurest',
-    'blender': (2, 79, 0),
+    'blender': (2, 80, 0),
     'version': (0, 4, 0),
     'location': "File > Import > KSons' glTF 2.0 (.glb/.gltf)",
     'description': 'Importer for the glTF 2.0 file format.',
@@ -128,18 +128,18 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         layout.prop(self, 'import_under_current_scene')
 
         col = layout.box().column()
-        col.label('Mesh:', icon='MESH_DATA')
+        col.label(text='Mesh:', icon='MESH_DATA')
         col.prop(self, 'smooth_polys')
 
         col = layout.box().column()
-        col.label('Bones:', icon='BONE_DATA')
-        col.label('(Tweak if bones point wrong)')
+        col.label(text='Bones:', icon='BONE_DATA')
+        col.label(text='(Tweak if bones point wrong)')
         col.prop(self, 'bone_rotation_mode')
         if self.as_keywords()['bone_rotation_mode'] == 'MANUAL':
             col.prop(self, 'bone_rotation_axis')
 
         col = layout.box().column()
-        col.label('Animation:', icon='OUTLINER_DATA_POSE')
+        col.label(text='Animation:', icon='OUTLINER_DATA_POSE')
         col.prop(self, 'import_animations')
         col.prop(self, 'framerate')
 
@@ -184,15 +184,21 @@ def menu_func_import(self, context):
 
 
 def register():
-    bpy.utils.register_module(__name__)
-
-    bpy.types.INFO_MT_file_import.append(menu_func_import)
+    if bpy.app.version >= (2, 80, 0):
+        bpy.utils.register_class(ImportGLTF)
+        bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    else:
+        bpy.utils.register_module(__name__)
+        bpy.types.INFO_MT_file_import.append(menu_func_import)
 
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
-
-    bpy.types.INFO_MT_file_import.remove(menu_func_import)
+    if bpy.app.version >= (2, 80, 0):
+        bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+        bpy.utils.unregister_class(ImportGLTF)
+    else:
+        bpy.utils.unregister_module(__name__)
+        bpy.types.INFO_MT_file_import.remove(menu_func_import)
 
 
 if __name__ == '__main__':

@@ -1,12 +1,18 @@
 import bpy
 
-def link_vnode_into_scene(vnode, scene):
-    if hasattr(vnode, 'blender_object'):
-        try:
-            scene.objects.link(vnode.blender_object)
-        except Exception:
-            # Ignore exception if its already linked
-            pass
+if bpy.app.version >= (2, 80, 0):
+    def link_vnode_into_scene(vnode, scene):
+        if vnode.blender_object:
+            if vnode.blender_object.name not in scene.collection.objects:
+                scene.collection.objects.link(vnode.blender_object)
+else:
+    def link_vnode_into_scene(vnode, scene):
+        if vnode.blender_object:
+            try:
+                scene.objects.link(vnode.blender_object)
+            except Exception:
+                # Ignore exception if its already linked
+                pass
 
 
 def link_tree_into_scene(vnode, scene):
@@ -45,4 +51,7 @@ def create_blender_scenes(op):
 
             # Select this scene if it is the default
             if i == default_scene_id:
-                bpy.context.screen.scene = blender_scene
+                if bpy.app.version >= (2, 80, 0):
+                    bpy.context.window.scene = blender_scene
+                else:
+                    bpy.context.screen.scene = blender_scene
