@@ -6,7 +6,7 @@ def create_light(op, idx):
     light = op.gltf['extensions']['KHR_lights_punctual']['lights'][idx]
     name = light.get('name', 'lights[%d]' % idx)
 
-    type = light['type']
+    light_type = light['type']
     color = light.get('color', [1, 1, 1])
     intensity = light.get('intensity', 1)
 
@@ -14,29 +14,32 @@ def create_light(op, idx):
         'directional': 'SUN',
         'point': 'POINT',
         'spot': 'SPOT',
-    }.get(type)
+    }.get(light_type)
     if not bl_type:
         print('unknown light type:', type)
         bl_type = 'POINT'
 
-    lamp = bpy.data.lamps.new(name, type=bl_type)
-    lamp.use_nodes = True
+    if bpy.app.version >= (2, 80, 0):
+        bl_light = bpy.data.lights.new(name, type=bl_type)
+    else:
+        bl_light = bpy.data.lamps.new(name, type=bl_type)
+    bl_light.use_nodes = True
 
-    emission = lamp.node_tree.nodes['Emission']
+    emission = bl_light.node_tree.nodes['Emission']
     emission.inputs['Color'].default_value = tuple(color) + (1,)
 
-    if type == 'directional':
+    if light_type == 'directional':
         watt = lux2W(intensity, ideal_555nm_source)
         emission.inputs['Strength'].default_value = watt
-    elif type == 'point':
+    elif light_type == 'point':
         watt = cd2W(intensity, ideal_555nm_source, surface=4*math.pi)
         emission.inputs['Strength'].default_value = watt
-    elif type == 'spot':
+    elif light_type == 'spot':
         spot = light.get('spot', {})
         inner = spot.get('innerConeAngle', 0)
         outer = spot.get('outerConeAngle', math.pi/4)
-        lamp.spot_size = outer
-        lamp.spot_blend = inner / outer
+        bl_light.spot_size = outer
+        bl_light.spot_blend = inner / outer
 
         # For the surface calc see:
         # https://en.wikipedia.org/wiki/Solid_angle#Cone,_spherical_cap,_hemisphere
@@ -48,7 +51,7 @@ def create_light(op, idx):
     else:
         assert(False)
 
-    return lamp
+    return bl_light
 
 
 # Watt conversions

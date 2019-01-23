@@ -26,7 +26,7 @@ GLTF_VERSION = (2, 0)
 # Supported extensions
 EXTENSIONS = set((
     'EXT_property_animation',  # tentative, only material properties supported
-    'KHR_lights_punctual',  # tentative until stabilized
+    'KHR_lights_punctual',
     'KHR_materials_pbrSpecularGlossiness',
     'KHR_materials_unlit',
     'KHR_texture_transform',

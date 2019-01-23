@@ -24,7 +24,7 @@ branch. Install with the instructions in [INSTALL.md](INSTALL.md).
 
 ## Supported glTF Extensions
 * EXT_property_animation (tentative until stabilized, material properties only)
-* KHR_lights_punctual (untested, tentative until stabilized)
+* KHR_lights_punctual
 * KHR_materials_pbrSpecularGlossiness
 * KHR_materials_unlit
 * KHR_texture_transform
