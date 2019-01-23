@@ -75,20 +75,25 @@ class Curve:
         for fcurve in fcurves:
             fcurve.keyframe_points.add(len(times))
 
-        # Let's us uniformly handle ordinates that are sequences and ordinates
-        # that are scalars.
-        if num_components == 1:
-            def tup(x): return (x,)
-        else:
-            def tup(x): return x
+        ords = [transform(y) for y in ords]
 
-        for k, (t, y) in enumerate(zip(times, ords)):
-            t = t * framerate
-            y = tup(transform(y))
-            for i in range(0, num_components):
-                pt = fcurves[i].keyframe_points[k]
+        # tmp is an array laid out like
+        #
+        #   [frame, ordinate, frame, ordinate, ...]
+        #
+        # This let's us set all the keyframes points in one batch, which is fast.
+        tmp = [0] * (2 * len(times))
+        tmp[::2] = (framerate * t for t in times)
+        for i in range(0, num_components):
+            if num_components == 1:
+                tmp[1::2] = ords
+            else:
+                tmp[1::2] = (y[i] for y in ords)
+            fcurves[i].keyframe_points.foreach_set('co', tmp)
+
+        for fcurve in fcurves:
+            for pt in fcurve.keyframe_points:
                 pt.interpolation = bl_interp
-                pt.co = (t, y[i])
 
         if interp == 'CUBICSPLINE':
             if not tangent_transform:
@@ -116,7 +121,9 @@ class Curve:
             for k in range(0, len(times) - 1):
                 t1, t2 = times[k], times[k + 1]
                 b, a = self.outs[k], self.ins[k + 1]
-                a, b = tup(tangent_transform(a)), tup(tangent_transform(b))
+                a, b = tangent_transform(a), tangent_transform(b)
+                if num_components == 1:
+                    a, b = (a,), (b,)
 
                 ct1 = (2 * t1 + t2) / 3
                 ct2 = (t1 + 2 * t2) / 3
