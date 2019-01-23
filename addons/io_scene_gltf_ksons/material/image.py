@@ -23,6 +23,9 @@ def create_image(op, idx):
             # Load the image from disk
             image_location = os.path.join(op.base_path, uri)
             img = load_image(image_location)
+            if not img:
+                print('error loading image')
+                return None
     else:
         buffer, _stride = op.get('buffer_view', image['bufferView'])
 
