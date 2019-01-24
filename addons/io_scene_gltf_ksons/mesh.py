@@ -193,14 +193,16 @@ def add_primitive_to_bmesh(op, bme, primitive, material_index):
 
         colors = op.get('accessor', attributes[layer_name])
 
-        # Old Blender versions only take RGB and new ones only take RGBA
-        if bpy.app.version >= (2, 79, 4):  # this bound is not necessarily tight
-            if colors and len(colors[0]) == 3:
-                colors = [color+(1,) for color in colors]
-        else:
-            if colors and len(colors[0]) == 4:
-                print("Your Blender version doesn't support RGBA vertex colors. Upgrade!")
-                colors = [color[:3] for color in colors]
+        # Check whether Blender takes RGB or RGBA colors (old versions only take RGB)
+        num_components = len(colors[0])
+        blender_num_components = len(bme_verts[0].link_loops[0][layer])
+        if num_components == 3 and blender_num_components == 4:
+            # RGB -> RGBA
+            colors = [color+(1,) for color in colors]
+        if num_components == 4 and blender_num_components == 3:
+            # RGBA -> RGB
+            colors = [color[:3] for color in colors]
+            print('No RGBA vertex colors in your Blender version; dropping A component!')
 
         for bidx, pidx in vert_idxs:
             for loop in bme_verts[bidx].link_loops:
