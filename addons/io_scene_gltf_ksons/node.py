@@ -59,11 +59,20 @@ def realize_vtree(op):
             modifier.object = armature_vnode.blender_object
             modifier.use_vertex_groups = True
 
-            # TODO: we need to constrain the mesh to its armature so that its
-            # world space position is affected only by the world space transform
-            # of the joints and not of the node where it is instantiated, see
-            # glTF/#1195. But note that this appears to break some sample models,
-            # eg. Monster.
+            # We need to constrain the mesh to its armature so that its world
+            # space position is affected only by the world space transform of
+            # the joints and not of the node where it is instantiated, see
+            # glTF/#1195.
+            constraint = obj.constraints.new(type='COPY_TRANSFORMS')
+            constraint.owner_space = 'LOCAL'
+            constraint.target_space = 'LOCAL'
+            constraint.target = armature_vnode.blender_object
+
+        # Set pose for bones that had non-homogeneous scalings
+        if vnode.type == 'BONE' and vnode.posebone_s is not None:
+            blender_object = vnode.armature_vnode.blender_object
+            pose_bone = blender_object.pose.bones[vnode.blender_name]
+            pose_bone.scale = vnode.posebone_s
 
         for child in vnode.children:
             pass2(child)

@@ -99,88 +99,107 @@ def bone_trs(op, anim_id, node_id, samplers):
 
     action = action_cache[anim_id]
 
-    # See vforest.py for the notation and assumptions used here.
-    #
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be
     #
     #     T(b) = sample_gltf_curve()
     #
-    # But in Blender, you animate a "pose bone", and the final position is
+    # But in Blender, you animate the pose bone, and the final position is
     # computed relative to the rest position as
     #
-    #     P'(b) = sample_blender_curve()
-    #     T'(b) = E'(b) P'(b)
+    #     P(b) = sample_blender_curve()
     #
-    # where the primed varaibles have had a coordinate change to modify the bind
-    # pose (again, see vforest.py). Calculating the value we need for P'(b) from
-    # the value we have for T(b)
+    # and these are related as (see vnode.py for the notation used here)
     #
-    #     P'(b) =
-    #     E'(b)^{-1} T'(b) =
-    #     E'(b)^{-1} C(pb)^{-1} T(b) C(b) =
-    #      {remember that E' do not contain a scale and the C do not contain a translation}
-    #     Rot[er^{-1}] Trans[-et] Scale[post_s] Rot[post_r] Trans[t] Rot[r] Scale[s] Scale[pre_s] Rot[pre_r] =
-    #      {lift the translations up}
-    #     Trans[Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t] ...
+    #     T'(b) = C(pb)^{-1} T(b) C(b)
+    #           = E(b) P(b)
     #
-    # Defining pt = (the expression inside the Trans there)
+    # Computing
     #
-    #     Trans[pt] Rot[er^{-1}] Scale[post_s] Rot[post_r] Rot[r] Scale[s] Scale[pre_s] Rot[pre_r] =
-    #      {by fiat, Scale[post_s] and Scale[pre_s] commute with rotations}
-    #     Trans[pt] Rot[er^{-1}] Rot[post_r] Rot[r] Scale[post_s] Scale[s] Rot[pre_r] Scale[pre_s] =
-    #      {using Scale[s] Rot[pre_r] = Rot[pre_r] Scale[s'] where s' is s permuted}
-    #     Trans[pt] Rot[er^{-1} * post_r * r] Scale[post_s] Rot[pre_r] Scale[s'] Scale[pre_s] =
-    #     Trans[pt] Rot[er^{-1} * post_r * r * pre_r] Scale[post_s * s' * pre_s] =
-    #     Trans[pt] Rot[pr] Scale[ps]
+    #       P(b)
+    #     = E(b)^{-1} C(pb)^{-1} T(b) C(b)
+    #     = Rot[er^{-1}] Trans[-et]
+    #       Rot[cr(pb)^{-1}] HomScale[1/cs(pb)]
+    #       Trans[t] Rot[r] Scale[s]
+    #       Rot[cr(b)] HomScale[cs(b)]
     #
-    # As we promised, pt depends only on t, pr depends only on r, and ps depends
-    # only on s (ignoring constants), so each curve only has its ordinates
-    # changed and they are still independent and don't need to be resampled.
+    #     { float the Trans to the left }
+    #     = Trans[Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))]
+    #       Rot[er^{-1}] Rot[cr(pb)^{-1}] HomScale[1/cs(pb)]
+    #       Rot[r] Scale[s]
+    #       Rot[cr(b)] HomScale[cs(b)]
+    #
+    #     { combine scalings }
+    #     = Trans[Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))]
+    #       Rot[er^{-1}] Rot[cr(pb)^{-1}]
+    #       Rot[r] Scale[s cs(b) / cs(pb)]
+    #       Rot[cr(b)]
+    #
+    #     { interchange the final Rot and Scale, permuting the scale }
+    #     = Trans[Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))]
+    #       Rot[er^{-1}] Rot[cr(pb)^{-1}]
+    #       Rot[r] Rot[cr(b)]
+    #       Scale[s']
+    #
+    #     { combine rotations }
+    #     = Trans[Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))]
+    #       Rot[er^{-1} cr(pb)^{-1} r cr(b)]
+    #       Scale[s']
+    #     = Trans[pt] Rot[pr] Scale[ps]
+    #
+    # Note that pt depends only on t (and not r or s), and similarly for pr and
+    # ps.
 
     et, er = bone_vnode.editbone_tr
-    inv_er, inv_et = er.conjugated(), -et
+    cr_pb = bone_vnode.parent.correction_rotation
+    cs_pb = bone_vnode.parent.correction_homscale
+    cr = bone_vnode.correction_rotation
+    cs = bone_vnode.correction_homscale
 
-    parent_pre_r = bone_vnode.parent.correction_rotation
-    parent_pre_s = bone_vnode.parent.correction_homscale
-    post_r = parent_pre_r.conjugated()
-    post_s = 1 / parent_pre_s
-
-    pre_r = bone_vnode.correction_rotation
-    pre_s = bone_vnode.correction_homscale
+    er_inv = er.conjugated()
+    cr_pb_inv = cr_pb.conjugated()
+    cs_pb_inv = 1 / cs_pb
 
     if 'translation' in samplers:
-        # pt = Rot[er^{-1}](-et) + Rot[er^{-1}] Scale[post_s] Rot[post_r] t
-        #    = c + m t
-        inv_er_mat = inv_er.to_matrix().to_4x4()
-        post_s_mat = post_s * Matrix.Identity(4)
-        c = mul(inv_er_mat, inv_et)
-        m = mul(mul(inv_er_mat, post_s_mat), post_r.to_matrix().to_4x4())
+        # pt = Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))
+        m = mul(
+            er_inv.to_matrix().to_4x4(),
+            mul(
+                Matrix.Translation(-et),
+                (cs_pb_inv * cr_pb_inv.to_matrix()).to_4x4()
+            )
+        )
 
-        def transform_translation(t): return c + mul(m, convert_translation(t))
+        def transform_translation(t): return mul(m, convert_translation(t))
 
         # In order to transform the tangents for cubic interpolation, we need to
         # know how the derivative transforms too. The other transforms are
         # linear, so their derivatives change the same way they do, but
         # transform_translation is affine, so its derivative changes by its
         # underlying linear map.
-        def transform_velocity(t): return mul(m, convert_translation(t))
+        lin_m = m.to_3x3()
+        def transform_velocity(t): return mul(lin_m, convert_translation(t))
 
     if 'rotation' in samplers:
-        # pt = er^{-1} * post_r * r * pre_r
-        #    = d * r * pre_r
-        d = mul(inv_er, post_r)
+        # pt = er^{-1} cr(pb)^{-1} r cr(b)
+        #    = left_r r cr(b)
+        left_r = mul(er_inv, cr_pb_inv)
 
-        def transform_rotation(r): return mul(mul(d, convert_rotation(r)), pre_r)
+        def transform_rotation(r): return mul(mul(left_r, convert_rotation(r)), cr)
 
     if 'scale' in samplers:
-        # ps = post_s * s' * pre_s
+        # s' = permute(s cs(b) / cs(pb))
+        #    = permute(s) * scale_factor
+        #
+        # The permutation is introduced when we interchange a rotation with a
+        # scaling
+        scale_factor = cs * cs_pb_inv
         perm = bone_vnode.correction_rotation_permutation
 
         def transform_scale(s):
             s = convert_scale(s)
             s = Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
-            return post_s * pre_s * s
+            return s * scale_factor
 
     bone_name = bone_vnode.blender_name
     base_path = 'pose.bones[%s]' % quote(bone_name)

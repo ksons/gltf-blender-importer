@@ -45,6 +45,7 @@ class VNode:
 
         # The editbone's (Translation, Rotation)
         self.editbone_tr = None
+        self.posebone_s = None
         self.editbone_local_to_armature = Matrix.Identity(4)
         self.bone_length = 0
         # Correction to apply to the original TRS to get the editbone TR
@@ -267,117 +268,89 @@ def move_instances(op):
     visit(op.root_vnode)
 
 
-# Here's the complicated pass. We would have liked for the bones' TRS transforms
-# to just be the nodes' TRS transforms, but this is not possible for two
-# reasons. One, a Blender edit bone cannot have a scaling (or its scaling is
-# always 1). And two, a bone always "points" along its local +Y-axis, and this
-# is often not the direction we want it to point.
+# Here's the compilcated pass.
 #
-# So we need to retarget the bone heirarchy onto a new bind pose. Here's how you
-# do it.
+# Brief review: every bone in glTF has a local-to-parent transform T(b;pose).
+# Sometimes we suppress the dependence on the pose and just write T(b). The
+# composition with the parent's local-to-parent, and so on up the armature is
+# the local-to-armature transform
 #
-# A bone, b, has a local-to-parent transform that is the composition of a pose
-# transform (from the pose bone) and an edit transform (from the edit bone)
+#     L(b) = T(root) ... T(ppb) T(pb) T(b)
 #
-#     T(b) = E(b) P(b)
+# where pb is the parent of b, ppb is the grandparent, etc. In Blender the
+# local-to-armature is
 #
-# We want to change the edit bones (ie. the rest pose) to a new pose E'(b),
-# which has unit scaling and is rotated to point some way we think is better,
-# but where all the vertices end up at the same world space position. To do it,
-# we choose per-bone coordinate changes C(b) = Cs(b) Cr(b) (Cs(b) is a scaling,
-# Cr(b) is a rotation) and replace
+#     LB(b) = E(root) P(root) ... E(ppb) P(ppb) E(pb) P(pb) E(b) P(b)
+#
+# where E(b) is a TR transform for the edit bone and P(b) is a TRS transform for
+# the pose bone.
+#
+# NOTE: I am note entirely sure of that formula.
+#
+# In the rest position P(b;rest) = 1 for all b, so we would like to just make
+# E(b) = T(b;rest), but we can't since T(b;rest) might have a scaling, and we
+# also want to try to rotate T(b) so we can pick which way the Blender
+# octahedorn points.
+#
+# So we're going to change T(b). For every bone b pick a rotation cr(b) and a
+# scalar cs(b) and define the correction matrix for b to be
+#
+#     C(b) = Rot[cr(b)] HomScale[cs(b)]
+#
+# and transform T(b) to
 #
 #     T'(b) = C(pb)^{-1} T(b) C(b)
-#     or
-#     E'(b) = C(pb)^{-1} E(b) C(b)
-#     P'(b) = C(b)^{-1} P(b) C(b)
 #
-# where pb is the parent of bone b. Now the local-to-arma transform for b is the
-# composition
+# If we compute L'(b) using the T'(b), most of the C terms cancel out and we get
 #
-#     L(b) = ... T(ppb) T(pb) T(b)
+#     L'(b) = L(b) C(b)
 #
-# so it changes to
+# This is close enough; we'll be able to cancel off the extra C(b) later.
 #
-#     L'(b) = ... T'(ppb) T'(pb) T'(b)
-#           = ... C(pppb)^{-1} T(ppb) C(ppb) C(ppb)^{-1} T(pb) C(pb) C(pb)^{-1} T(b) C(b)
-#            { all C(x)^{-1} C(x) factors cancel }
-#           = ... T(ppb) T(pb) T(b) C(b)
-#           = L(b) C(b)
+# How do we pick C(b)? Assume we've already computed C(pb) and calculate T'(b)
 #
-# so the local-to-arma transforms are only affected by being premultipled by the
-# change at b (ie. the change is only local).
+#       T'(b)
+#     = C(pb)^{-1} T(b) C(b)
+#     = Rot[cr(pb)^{-1}] HomScale[1/cs(pb)]
+#       Trans[t] Rot[r] Scale[s]
+#       Rot[cr(b)] HomScale[cs(b)]
+#     { floating the Trans to the left, combining Rots }
+#     = Trans[ Rot[cr(pb)^{-1}] t / cs(pb) ]
+#       Rot[cr(pb)^{-1} r] HomScale[1/cs(pb)] Scale[s]
+#       Rot[cr(b)] HomScale[cs(b)]
 #
-# Similarly the inverse bind transforms, defined by
+# Now assume Scale[s] = HomScale[s] (and s is not 0), ie. the bone has a
+# homogeneous scaling. Then we can rearrange this and get
 #
-#     I(b) = (... E(ppb) E(pb) E(b))^{-1}
-#          = E(b)^{-1} E(pb)^{-1} E(ppb)^{-1} ...
+#       Trans[ Rot[cr(pb)^{-1}] t / cs(pb) ]
+#       Rot[cr(pb)^{-1} r cr(b)]
+#       HomScale[s cs(b) / cs(pb)]
 #
-# change to
+# Now if we want the rotation to be R we can pick cr(b) = r^{-1} cr(pb) R. We
+# also want the scale to be 1, because again, E(b) has a scaling of 1 in Blender
+# always, so we pick cs(b) = cs(pb) / s.
 #
-#     I'(b) = C(b)^{-1} I(b)
+# Okay, cool, so this is now a TR matrix and we can identify it with E(b).
 #
-# As a result L'(b) I'(b) = L(b) I(b), so skinned vertices, which are computed
-# from
+# But what if Scale[s] **isn't** homogeneous? We appear to have no choice but to
+# put it on P(b;loadtime) for some non-rest pose we'll set at load time. This is
+# unfortunate because the rest pose in Blender won't be the same as the rest
+# pose in glTF (and there's inverse bind matrix fallout too).
 #
-#     \sum_b weight(b) L(b) I(b) position
+# So in that case we'll take C(b) = 1, and set
 #
-# are unchanged in the new bind pose. Unskinned vertices at b, like for an
-# unskinned mesh or a camera, can be put in the correct place by adding a local
-# correction of C(b)^{-1} between them and b.
+#     E(b) = Trans[ Rot[cr(pb)^{-1}] t / cs(pb) ] Rot[cr(pb)^{-1} r]
+#     P(b;loadtime) = Scale[s / cs(pb)]
 #
-#     L'(b) C(b)^{-1} position = L(b) position
+# So in both cases we now have LB(b) = L'(b).
 #
-# So the net result is that the bind pose has changed, but all the world
-# position are the same.
-#
-# There are two problems:
-#
-# First, that TRS transforms do not form a group, so an expression like
-# C(pb)^{-1} E(b) C(b) is not necessarily a TRS transform (and so obviously we
-# can't set the bone's transform to it). This comes down to the fact that there
-# is not necessarily a solution r', s' to the equation
-#
-#     Scale[s] Rot[r] = Rot[r'] Scale[s']
-#
-# This is the more serious problem. It impacts our ability to make the world
-# space positions accurate.
-#
-# Second, even if they did form a group, in the expression for P'(b), it is not
-# necessarily the case that the translation component depends only on the
-# translation of P(b) (and C), the rotation depends only on the rotation, etc.
-# This failure means we would not be able to calculate animation curves
-# independently. The scale curve could affect the rotation curve, so we would
-# have to resample them onto a common domain, etc. This is undesirable (but it
-# is possible, there's code for it in our git history somewhere) not only
-# because it adds more complex code, but because the user loses the imformation
-# about what the time domain in the glTF file looked like.
-#
-# We "solve" these two problems by making the following dicta:
-#
-# First, we always assume that
-#
-#     Cs(b) commutes with any rotation: Cs(b) Rot[r] = Rot[r] Cs(b).
-#
-# If the rest scalings are all homogeneous, then the Cs(b) scalings are also
-# homogeneous and this assumption is justified. What if your model had
-# non-homogeneous rest scalings? Too bad, we assume it anyway! You're lucky we'll
-# even look at your crummy model, ya dog. Maybe you'll get a warning. Anyway
-# it's not clear to me that it's possible in general to retarget a bind pose
-# that uses non-homogeneous scalings onto one that doesn't use any scalings
-# without some kind of loss of accuracy.
-#
-# Second, the Cr(b) rotations are picked to have a special form. They are, up to
-# sign, a permutation of the basis vectors, eg. X,Y,Z -> X,Z,-Y. This also
-# allows them to interchange with a scaling
-#
-#     Rot[Cr(b)] Scale[s'] = Scale[s] Rot[Cr(b)]
-#       where s'_k = s_{p(k)}
-#       where p is the permutation st. Rot[Cr(b)] e_k = e_{p(k)} (ignoring signs)
-#
-# This is necessary to get them to work with the scaling on the pose bones (in
-# animation importing) which we have not restricted to being homogeneous.
+# TODO: we can still pick a rotation when the scaling is heterogeneous
 def adjust_bones(op):
+    # We always pick a rotation for cr(b) that is, up to sign, a permutation of
+    # the basis vectors. This is necessary for some of the algebra to work out
+    # in animtion importing.
+
+    # The possible axes that cr(b) will carry +Y into.
     axes = {
         '-X': Vector((-1,  0,  0)),
         '+X': Vector((1,  0,  0)),
@@ -385,8 +358,7 @@ def adjust_bones(op):
         '-Z': Vector((0,  0, -1)),
         '+Z': Vector((0,  0,  1)),
     }
-    # Each of these carries the corresponding axis into the +Y axis. Used for
-    # picking Cr(b).
+    # Each of these carries the corresponding axis into the +Y axis.
     eulers = {
         '-X': Euler([0, 0, pi/2]),
         '+X': Euler([0, 0, -pi/2]),
@@ -396,7 +368,7 @@ def adjust_bones(op):
         '+Z': Euler([pi/2, 0, 0]),
     }
     # These are the underlying permutation of the basis vectors for the
-    # transforms in eulers. Used to compute s' in animation.py.
+    # transforms in eulers. Used in animation importing.
     perms = {
         '-X': [1, 0, 2],
         '+X': [1, 0, 2],
@@ -405,69 +377,75 @@ def adjust_bones(op):
         '-Z': [0, 2, 1],
         '+Z': [0, 2, 1],
     }
-    # The list of distances between bone heads (used for computing bone lengths)
+
+    # List of distances between bone heads (used for computing bone lengths)
     interbone_dists = []
 
     def visit_bone(vnode):
         t, r, s = vnode.trs
 
-        # TODO: unimplemented
-        if not is_non_degenerate_homscale(s):
-            raise Exception("unimplemented: bone has degenerate or non-homogeneous scaling")
-        s = s[0]
+        cr_pb_inv = vnode.parent.correction_rotation.conjugated()
+        cs_pb = vnode.parent.correction_homscale
 
-        # Apply C(pb)^{-1} = Cr(pb)^{-1} Cs(pb)^{-1} = Rot[post_rotate] Scale[post_scale]
-        post_rotation = vnode.parent.correction_rotation.conjugated()
-        post_homscale = 1 / vnode.parent.correction_homscale
-        # Rot[post_rotate] Scale[post_scale] Trans[t] Rot[r] Scale[s] =
-        # Trans[Rot[post_rotate] Scale[post_scale] t] Rot[post_rotate * r] Scale[post_scale * s]
-        t = mul(post_rotation.to_matrix(), t)
-        t = post_homscale * t
-        r = mul(post_rotation, r)
-        s = post_homscale * s
+        # Trans[ Rot[cr(pb)^{-1}] t / cs(pb) ]
+        editbone_t = mul(cr_pb_inv, t) / cs_pb
 
-        # Choose a pre-scaling that will cancel out our scaling, s.
-        vnode.correction_homscale = 1 / s
+        if is_non_degenerate_homscale(s):
+            # s is a homogeneous scaling (ie. scalar mutliplication)
+            s = s[0]
 
-        # Choose a pre-rotation
-        axis = None
-        if op.bone_rotation_mode == 'MANUAL':
-            axis = op.bone_rotation_axis
-        elif op.bone_rotation_mode == 'AUTO':
-            # We choose an axis that makes our tail close to the head of the
-            # one of our children
-            def guess_axis():
-                for child in vnode.children:
-                    head = s * child.trs[0]
-                    length = head.length
-                    if length > 0.0005:
-                        for axis_name, vec in axes.items():
-                            if (vec * length - head).length < length * 0.25:
-                                return axis_name
-                return None
+            # cs(b) = cs(pb) / s
+            vnode.correction_homscale = cs_pb / s
 
-            axis = guess_axis()
-            # Otherwise use the same axis our parent used
-            if not axis:
-                axis = getattr(vnode.parent, 'correction_rotation_axis', '+Y')
-        elif op.bone_rotation_mode == 'NONE':
-            axis = '+Y'
-        pre_rotation = eulers[axis].to_quaternion()
-        pre_perm = perms[axis]
-        vnode.correction_rotation_axis = axis
-        vnode.correction_rotation = pre_rotation
-        vnode.correction_rotation_permutation = pre_perm
+            # Now pick a desired rotation
+            axis = None
+            if op.bone_rotation_mode == 'MANUAL':
+                axis = op.bone_rotation_axis
+            elif op.bone_rotation_mode == 'AUTO':
+                # We choose an axis that makes our tail close to the head of the
+                # one of our children,
+                def guess_axis():
+                    for child in vnode.children:
+                        head = (cs_pb / s) * child.trs[0]
+                        length = head.length
+                        if length > 0.0005:
+                            for axis_name, vec in axes.items():
+                                if (vec * length - head).length < length * 0.25:
+                                    return axis_name
+                    return None
 
-        # Apply the pre-rotation.
-        r = mul(r, pre_rotation)
+                axis = guess_axis()
+                # Otherwise use the same axis our parent used
+                if not axis:
+                    axis = getattr(vnode.parent, 'correction_rotation_axis', '+Y')
+            elif op.bone_rotation_mode == 'NONE':
+                axis = '+Y'
 
-        vnode.editbone_tr = t, r
+            cr = eulers[axis].to_quaternion()
+            pre_perm = perms[axis]
+            vnode.correction_rotation_axis = axis
+            vnode.correction_rotation = cr
+            vnode.correction_rotation_permutation = pre_perm
+
+            # cr(pb)^{-1} r cr(b)
+            editbone_r = mul(mul(cr_pb_inv, r), cr)
+
+        else:
+            # C(b) = 1
+            vnode.correction_rotation = Quaternion((1, 0, 0, 0))
+            vnode.correction_homscale = 1
+            # E(b) = Trans[ Rot[cr(pb)^{-1}] t / cs(pb) ] Rot[cr(pb)^{-1} r]
+            # P(b;loadtime) = Scale[s / cs(pb)]
+            editbone_r = mul(cr_pb_inv, r)
+            vnode.pose_s = s / cs_pb
+
+        vnode.editbone_tr = editbone_t, editbone_r
         vnode.editbone_local_to_armature = mul(
             vnode.parent.editbone_local_to_armature,
-            mul(Matrix.Translation(t), r.to_matrix().to_4x4())
+            mul(Matrix.Translation(editbone_t), editbone_r.to_matrix().to_4x4())
         )
 
-        interbone_dists.append(t.length)
+        interbone_dists.append(editbone_t.length)
 
         # Try getting a bone length for our parent. The length that makes its
         # tail meet our head is considered best. Since the tail always lies
@@ -478,9 +456,9 @@ def adjust_bones(op):
         # child.
         vnode.bone_length_goodness = -99999
         if vnode.parent.type == 'BONE':
-            t_len = t.length
+            t_len = editbone_t.length
             if t_len > 0.0005:
-                goodness = t.dot(Vector((0, 1, 0))) / t_len
+                goodness = editbone_t.dot(Vector((0, 1, 0))) / t_len
                 if goodness > vnode.parent.bone_length_goodness:
                     if vnode.parent.bone_length == 0 or vnode.parent.bone_length > t_len:
                         vnode.parent.bone_length = t_len
@@ -488,7 +466,8 @@ def adjust_bones(op):
 
         # Recurse
         for child in vnode.children:
-            visit_bone(child)
+            if child.type == 'BONE':
+                visit_bone(child)
 
         # We're on the way back up. Last chance to set our bone length if none
         # of our children did. Use our parent's, if it has one. Otherwise, use
@@ -514,7 +493,33 @@ def adjust_bones(op):
 
     visit(op.root_vnode)
 
-    # TODO: apply correction to object-children of bones
+    # Remember that L'(b) = L(b) C(b)? Remember that we had to move any
+    # mesh/camera/light on a bone to an object? That's the perfect place to put
+    # a transform of C(b)^{-1} to cancel out that extra factor!
+    def visit_object_child_of_bone(vnode):
+        t, r, s = vnode.trs
+
+        # This moves us back along the bone, because for some reason Blender
+        # puts us at the tail of the bone, not the head
+        t -= Vector((0, vnode.parent.bone_length, 0))
+
+        #   Rot[cr^{-1}] HomScale[1/cs] Trans[t] Rot[r] Scale[s]
+        # = Trans[ Rot[cr^{-1}] t / cs] Rot[cr^{-1} r] Scale[s / cs]
+        cr_inv = vnode.parent.correction_rotation.conjugated()
+        cs = vnode.parent.correction_homscale
+        t = mul(cr_inv, t) / cs
+        r = mul(cr_inv, r)
+        s /= cs
+
+        vnode.trs = t, r, s
+
+    def visit(vnode):
+        if vnode.type == 'OBJECT' and vnode.parent.type == 'BONE':
+            visit_object_child_of_bone(vnode)
+        for child in vnode.children:
+            visit(child)
+
+    visit(op.root_vnode)
 
 
 # Helper functions below here:
