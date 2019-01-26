@@ -68,6 +68,8 @@ def realize_vtree(op):
             constraint.target_space = 'LOCAL'
             constraint.target = armature_vnode.blender_object
 
+            # TODO: investigate this more
+
         # Set pose for bones that had non-homogeneous scalings
         if vnode.type == 'BONE' and vnode.posebone_s is not None:
             blender_object = vnode.armature_vnode.blender_object
@@ -85,7 +87,7 @@ def realize_object(op, vnode):
     # Create the mesh/camera/light instance
     data = None
     if vnode.mesh:
-        data = op.get('mesh', vnode.mesh['mesh'])
+        data = op.get('mesh', (vnode.mesh['mesh'], vnode.mesh['primitive_idx']))
 
         # Set instance's morph target weights
         if vnode.mesh['weights'] and data.shape_keys:

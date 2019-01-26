@@ -3,9 +3,15 @@ import bpy
 from mathutils import Vector
 
 
-def create_mesh(op, idx):
+def create_mesh(op, mesh_spec):
+    idx, primitive_idx = mesh_spec
+
     mesh = op.gltf['meshes'][idx]
     primitives = mesh['primitives']
+
+    # The caller can request we generate only one primitive instead of all of them
+    if primitive_idx is not None:
+        primitives = [primitives[primitive_idx]]
 
     bme = bmesh.new()
 
@@ -29,13 +35,15 @@ def create_mesh(op, idx):
     ))
 
     # Add in all the primitives
-    for i, primitive in enumerate(mesh['primitives']):
+    for primitive in primitives:
         material = op.get('material', primitive.get('material', 'default_material'))
         material_idx = materials.index(material)
 
         add_primitive_to_bmesh(op, bme, primitive, material_idx)
 
     name = mesh.get('name', 'meshes[%d]' % idx)
+    if primitive_idx is not None:
+        name += '.primitives[%d]' % primitive_idx
     me = bpy.data.meshes.new(name)
     bmesh_to_mesh(bme, me)
     bme.free()

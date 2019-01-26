@@ -91,6 +91,7 @@ def initial_vtree(op):
         if 'mesh' in node:
             vnode.mesh = {
                 'mesh': node['mesh'],
+                'primitive_idx': None, # use all primitives
                 'skin': node.get('skin'),
                 'weights': node.get('weights', op.gltf['meshes'][node['mesh']].get('weights')),
             }
@@ -233,7 +234,7 @@ def move_instances(op):
         new_child.type = 'OBJECT'
 
         setattr(new_child, key, inst)
-        setattr(vnode, key + '_moved_to', new_child)
+        setattr(vnode, key + '_moved_to', [new_child])
 
         if key in ['camera', 'light']:
             # Quarter-turn around the X-axis. Needed for cameras or lights that
@@ -267,6 +268,40 @@ def move_instances(op):
 
     visit(op.root_vnode)
 
+    # The user can request that meshes be split into their primitives, like this
+    #
+    #       OBJ      =>     OBJ
+    #      (mesh)         /  |  \
+    #                  OBJ  OBJ  OBJ
+    #                (mesh)(mesh)(mesh)
+    if op.split_meshes:
+        def visit(vnode):
+            children = list(vnode.children)
+
+            if vnode.mesh is not None:
+                num_prims = len(op.gltf['meshes'][vnode.mesh['mesh']]['primitives'])
+                if num_prims > 1:
+                    new_children = []
+                    for prim_idx in range(0, num_prims):
+                        child = VNode()
+                        child.name = vnode.name + '.primitives[%d]' % prim_idx
+                        child.type = 'OBJECT'
+                        child.parent = vnode
+                        child.mesh = {
+                            'mesh': vnode.mesh['mesh'],
+                            'skin': vnode.mesh['skin'],
+                            'weights': vnode.mesh['weights'],
+                            'primitive_idx': prim_idx,
+                        }
+                        new_children.append(child)
+                    vnode.mesh = None
+                    vnode.children += new_children
+                    vnode.mesh_moved_to = new_children
+
+            for child in children:
+                visit(child)
+
+        visit(op.root_vnode)
 
 # Here's the compilcated pass.
 #

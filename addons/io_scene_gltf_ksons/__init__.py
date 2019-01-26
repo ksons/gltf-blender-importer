@@ -62,6 +62,15 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         'disabling for low-res models.',
         default=True,
     )
+    split_meshes = BoolProperty(
+        name='Split meshes into primitives',
+        description=(
+            'A glTF mesh is made of multile primitives. When this is disabled, each '
+            'glTF meshes makes one Blender mesh. When it is enabled, each glTF primitive '
+            'makes one Blender mesh.'
+        ),
+        default=False,
+    )
     bone_rotation_mode = EnumProperty(
         items=[
             ('NONE', "Don't change", ''),
@@ -130,6 +139,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col = layout.box().column()
         col.label(text='Mesh:', icon='MESH_DATA')
         col.prop(self, 'smooth_polys')
+        col.prop(self, 'split_meshes')
 
         col = layout.box().column()
         col.label(text='Bones:', icon='BONE_DATA')
@@ -173,7 +183,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         for opt in [
             'import_under_current_scene', 'smooth_polys',
             'import_animations', 'framerate', 'bone_rotation_mode',
-            'bone_rotation_axis',
+            'bone_rotation_axis', 'split_meshes'
         ]:
             setattr(self, opt, keywords[opt])
 
