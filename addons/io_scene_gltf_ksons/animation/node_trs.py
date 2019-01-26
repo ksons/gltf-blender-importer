@@ -15,19 +15,6 @@ def add_node_trs_animation(op, anim_id, node_id, samplers):
         object_trs(op, anim_id, node_id, samplers)
 
 
-# Convert from glTF coordinates to Blender.
-def convert_translation(t):
-    return Vector([t[0], -t[2], t[1]])
-
-
-def convert_rotation(r):
-    return Quaternion([r[3], r[0], -r[2], r[1]])
-
-
-def convert_scale(s):
-    return Vector([s[0], s[2], s[1]])
-
-
 def object_trs(op, animation_id, node_id, samplers):
     # Create action
     animation = op.gltf['animations'][animation_id]
@@ -47,7 +34,7 @@ def object_trs(op, animation_id, node_id, samplers):
         curve = Curve.for_sampler(op, samplers['translation'])
         fcurves = curve.make_fcurves(
             op, action, 'location',
-            transform=convert_translation)
+            transform=op.convert_translation)
 
         group = action.groups.new('Location')
         for fcurve in fcurves:
@@ -58,7 +45,7 @@ def object_trs(op, animation_id, node_id, samplers):
         curve.shorten_quaternion_paths()
         fcurves = curve.make_fcurves(
             op, action, 'rotation_quaternion',
-            transform=convert_rotation)
+            transform=op.convert_rotation)
 
         group = action.groups.new('Rotation')
         for fcurve in fcurves:
@@ -68,7 +55,7 @@ def object_trs(op, animation_id, node_id, samplers):
         curve = Curve.for_sampler(op, samplers['scale'])
         fcurves = curve.make_fcurves(
             op, action, 'scale',
-            transform=convert_scale)
+            transform=op.convert_scale)
 
         group = action.groups.new('Scale')
         for fcurve in fcurves:
@@ -170,6 +157,7 @@ def bone_trs(op, anim_id, node_id, samplers):
             )
         )
 
+        convert_translation = op.convert_translation
         def transform_translation(t): return mul(m, convert_translation(t))
 
         # In order to transform the tangents for cubic interpolation, we need to
@@ -185,6 +173,7 @@ def bone_trs(op, anim_id, node_id, samplers):
         #    = left_r r cr(b)
         left_r = mul(er_inv, cr_pb_inv)
 
+        convert_rotation = op.convert_rotation
         def transform_rotation(r): return mul(mul(left_r, convert_rotation(r)), cr)
 
     if 'scale' in samplers:
@@ -196,6 +185,7 @@ def bone_trs(op, anim_id, node_id, samplers):
         scale_factor = cs * cs_pb_inv
         perm = bone_vnode.correction_rotation_permutation
 
+        convert_scale = op.convert_scale
         def transform_scale(s):
             s = convert_scale(s)
             s = Vector((s[perm[0]], s[perm[1]], s[perm[2]]))

@@ -96,11 +96,6 @@ def bmesh_to_mesh(bme, me):
         bpy.data.objects.remove(dummy_ob)
 
 
-def convert_coordinates(v):
-    """Convert glTF coordinate system to Blender."""
-    return [v[0], -v[2], v[1]]
-
-
 def get_layer(bme_layers, name):
     """Gets a layer from a BMLayerCollection, creating it if it does not exist."""
     if name not in bme_layers:
@@ -126,6 +121,8 @@ def add_primitive_to_bmesh(op, bme, primitive, material_index):
     bme_verts = bme.verts
     bme_edges = bme.edges
     bme_faces = bme.faces
+
+    convert_coordinates = op.convert_translation
 
     # The primitive stores vertex attributes in arrays and gives indices into
     # those arrays

@@ -85,7 +85,7 @@ def initial_vtree(op):
         vnode = VNode()
         vnode.node_id = node_id
         vnode.name = node.get('name', 'nodes[%d]' % node_id)
-        vnode.trs = get_node_trs(node)
+        vnode.trs = get_node_trs(op, node)
         vnode.type = 'OBJECT'
 
         if 'mesh' in node:
@@ -559,7 +559,7 @@ def adjust_bones(op):
 
 # Helper functions below here:
 
-def get_node_trs(node):
+def get_node_trs(op, node):
     """Gets the TRS proerties from a glTF node JSON object."""
     if 'matrix' in node:
         m = node['matrix']
@@ -567,16 +567,19 @@ def get_node_trs(node):
         m = Matrix([m[0:4], m[4:8], m[8:12], m[12:16]])
         m.transpose()
         loc, rot, sca = m.decompose()
+        # wxyz -> xyzw
+        # convert_rotation will switch back
+        rot = [rot[1], rot[2], rot[3], rot[0]]
+
     else:
         sca = node.get('scale', [1.0, 1.0, 1.0])
         rot = node.get('rotation', [0.0, 0.0, 0.0, 1.0])
-        rot = [rot[3], rot[0], rot[1], rot[2]]  # xyzw -> wxyz
         loc = node.get('translation', [0.0, 0.0, 0.0])
 
     # Switch glTF coordinates to Blender coordinates
-    sca = [sca[0], sca[2], sca[1]]
-    rot = [rot[0], rot[1], -rot[3], rot[2]]
-    loc = [loc[0], -loc[2], loc[1]]
+    sca = op.convert_scale(sca)
+    rot = op.convert_rotation(rot)
+    loc = op.convert_translation(loc)
 
     return [Vector(loc), Quaternion(rot), Vector(sca)]
 
