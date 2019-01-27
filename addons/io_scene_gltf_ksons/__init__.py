@@ -62,6 +62,15 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         'units (glTF is in meters).',
         default=1.0,
     )
+    axis_conversion = EnumProperty(
+        items=[
+            ('BLENDER_UP', 'Blender Up (+Z)', ''),
+            ('BLENDER_RIGHT', 'Blender Right (+Y)', ''),
+        ],
+        name='Up (+Y) to',
+        description="Choose whether to convert to Blender's axis convention or not.",
+        default='BLENDER_UP',
+    )
     smooth_polys = BoolProperty(
         name='Enable polygon smoothing',
         description='Enable smoothing for all polygons in imported meshes. Suggest '
@@ -145,6 +154,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         col = layout.box().column()
         col.label(text='Units:', icon='MANIPUL')
+        col.prop(self, 'axis_conversion')
         col.prop(self, 'global_scale')
 
         col = layout.box().column()
@@ -192,23 +202,36 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         """Load user-supplied options."""
         keywords = self.as_keywords()
         for opt in [
-            'import_under_current_scene', 'smooth_polys', 'global_scale',
+            'import_under_current_scene', 'global_scale', 'axis_conversion',
+            'smooth_polys', 'split_meshes',
             'import_animations', 'framerate', 'bone_rotation_mode',
-            'bone_rotation_axis', 'split_meshes'
+            'bone_rotation_axis',
         ]:
             setattr(self, opt, keywords[opt])
 
     def set_conversions(self):
-        s = self.global_scale
+        global_scale = self.global_scale
+        axis_conversion = self.axis_conversion
 
-        def convert_translation(t):
-            return s * Vector([t[0], -t[2], t[1]])
+        if axis_conversion == 'BLENDER_UP':
+            def convert_translation(t):
+                return global_scale * Vector([t[0], -t[2], t[1]])
 
-        def convert_rotation(r):
-            return Quaternion([r[3], r[0], -r[2], r[1]])
+            def convert_rotation(r):
+                return Quaternion([r[3], r[0], -r[2], r[1]])
 
-        def convert_scale(s):
-            return Vector([s[0], s[2], s[1]])
+            def convert_scale(s):
+                return Vector([s[0], s[2], s[1]])
+
+        else:
+            def convert_translation(t):
+                return global_scale * Vector(t)
+
+            def convert_rotation(r):
+                return Quaternion([r[3], r[0], r[1], r[2]])
+
+            def convert_scale(s):
+                return Vector(s)
 
         self.convert_translation = convert_translation
         self.convert_rotation = convert_rotation
