@@ -46,7 +46,7 @@ class Block:
     #     --|A |-|  B  |-| C |--
     #       |  | '-----' |   |
     #       '--'         '---'
-    def row_align_center(blocks, gutter=0):
+    def row_align_center(blocks, gutter=100):
         x, y = 0, 0
         max_height = max((height(block) for block in blocks), default=0)
         for block in blocks:
@@ -69,7 +69,7 @@ class Block:
     #       .---.
     #       | C |
     #       '---'
-    def col_align_right(blocks, gutter=0):
+    def col_align_right(blocks, gutter=100):
         x, y = 0, 0
         max_width = max((width(block) for block in blocks), default=0)
         for block in blocks:
