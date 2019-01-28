@@ -43,6 +43,9 @@ class MaterialCreator:
                 prop_name = key[len('prop.'):]
                 setattr(new_node, prop_name, val)
 
+            elif key == 'dim':
+                new_node.width, new_node.height = val
+
         input_block = Block.col_align_right(input_blocks)
 
         block = Block.row_align_center([input_block, new_node])
@@ -126,6 +129,15 @@ def create_node_tree(mc):
     else:
         block = shaded_block
 
+    alpha_block = create_alpha_block(mc)
+    if alpha_block:
+        block = mc.adjoin({
+            'node': 'MixShader',
+            'input.1': block,
+            'output.0/input.Fac': alpha_block,
+            'output.1/input.2': alpha_block,
+        })
+
     mc.adjoin({
         'node': 'OutputMaterial',
         'input.Surface': block,
@@ -175,6 +187,48 @@ def create_emissive(mc):
     return block
 
 
+def create_alpha_block(mc):
+    alpha_mode = mc.material.get('alphaMode', 'OPAQUE')
+
+    if alpha_mode == 'OPAQUE':
+        return None
+
+    if alpha_mode not in ['MASK', 'BLEND']:
+        print('unknown alpha mode %s' % alpha_mode)
+        return None
+
+    block = mc.adjoin({
+        'node': 'Math',
+        'prop.operation': 'SUBTRACT',
+        'value.0': 1,
+    })
+    # Link the image texture's alpha into invert block's second input slot
+    # TODO: shouldn't we use the base color alpha instead?
+    if getattr(mc, 'img_node', None):
+        mc.links.new(
+            mc.img_node.outputs[1],
+            block.outputs[0].node.inputs[1]
+        )
+
+    if alpha_mode == 'MASK':
+        alpha_cutoff = mc.material.get('alphaCutoff', 0.5)
+        block = mc.adjoin({
+            'node': 'Math',
+            'prop.operation': 'GREATER_THAN',
+            'input.0': block,
+            'value.1': alpha_cutoff,
+        })
+
+    transparent_block = mc.adjoin({
+        'node': 'BsdfTransparent',
+    })
+
+    alpha_block = Block.col_align_right([block, transparent_block])
+    alpha_block.outputs = [block.outputs[0], transparent_block.outputs[0]]
+
+    return alpha_block
+
+
 def create_shaded(mc):
     if mc.type == 'metalRough':
         return create_metalRough_pbr(mc)
@@ -189,6 +243,7 @@ def create_shaded(mc):
 def create_metalRough_pbr(mc):
     params = {
         'node': 'BsdfPrincipled',
+        'dim': (200, 540),
     }
 
     base_color_block = create_base_color(mc)
@@ -230,6 +285,8 @@ def create_base_color(mc):
             mc.tree,
             mc.pbr['baseColorTexture'],
         )
+        # Remember for alpha value
+        mc.img_node = block.img_node
 
     if mc.idx in mc.op.materials_using_color0:
         vert_color_block = mc.adjoin({
