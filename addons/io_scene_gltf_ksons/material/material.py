@@ -78,13 +78,40 @@ def create_material(op, idx):
         mc.type = 'metalRough'
 
     # Create a new Blender node-tree material and empty it
-    mc.bl_material = bpy.data.materials.new(material_name)
-    mc.bl_material.use_nodes = True
-    mc.tree = mc.bl_material.node_tree
+    bl_material = bpy.data.materials.new(material_name)
+    bl_material.use_nodes = True
+    mc.tree = bl_material.node_tree
     mc.links = mc.tree.links
     while mc.tree.nodes:
         mc.tree.nodes.remove(mc.tree.nodes[0])
 
+    create_node_tree(mc)
+
+    # Set the viewport alpha mode
+    alpha_mode = mc.material.get('alphaMode', 'OPAQUE')
+    blend_method = {
+        # Blender: glTF
+        'OPAQUE': 'OPAQUE',
+        'MASK': 'CLIP',
+        'BLEND': 'ALPHA',
+     }.get(alpha_mode, 'OPAQUE')
+    if getattr(bl_material, 'blend_method', None):
+        bl_material.blend_method = blend_method
+    else:
+        bl_material.game_settings.alpha_blend = blend_method
+
+    # Set diffuse/specular color (for solid view)
+    if 'baseColorFactor' in mc.pbr:
+        bl_material.diffuse_color = mc.pbr['baseColorFactor'][:3]
+    if 'diffuseFactor' in mc.pbr:
+        bl_material.diffuse_color = mc.pbr['diffuseFactor'][:3]
+    if 'specularFactor' in mc.pbr:
+        bl_material.specular_color = mc.pbr['specularFactor']
+
+    return bl_material
+
+
+def create_node_tree(mc):
     emissive_block = None
     if mc.type != 'unlit':
         emissive_block = create_emissive(mc)
@@ -103,8 +130,6 @@ def create_material(op, idx):
         'node': 'OutputMaterial',
         'input.Surface': block,
     })
-
-    return mc.bl_material
 
 
 def create_emissive(mc):
@@ -195,7 +220,6 @@ def create_unlit(mc):
     return mc.adjoin(params)
 
 
-
 def create_base_color(mc):
     block = None
     if 'baseColorTexture' in mc.pbr:
@@ -261,7 +285,6 @@ def create_metal_roughness(mc):
 
     else:
         return None
-
 
 
 def create_normal_block(mc):
