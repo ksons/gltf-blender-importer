@@ -32,8 +32,12 @@ class MaterialCreator:
                     input_blocks.append(val)
 
             elif key.startswith('value.'):
-                input_name = key[len('value.'):]
+                input_name = str_or_int(key[len('value.'):])
                 new_node.inputs[input_name].default_value = val
+
+            elif key.startswith('outvalue.'):
+                output_name = str_or_int(key[len('outvalue.'):])
+                new_node.outputs[output_name].default_value = val
 
             elif key.startswith('prop.'):
                 prop_name = key[len('prop.'):]
@@ -104,19 +108,46 @@ def create_material(op, idx):
 
 
 def create_emissive(mc):
-    tex_block = None
+    if mc.type == 'unlit':
+        return None
+
+    block = None
     if 'emissiveTexture' in mc.material:
-        tex_block = create_texture_block(mc.op, mc.idx, 'emissiveTexture', mc.tree, mc.material['emissiveTexture'])
+        block = create_texture_block(
+            mc.op,
+            mc.idx,
+            'emissiveTexture',
+            mc.tree,
+            mc.material['emissiveTexture']
+        )
 
-    # TODO: emissive factor
-    #@emissive_factor = mc.material.get('emissiveFactor', [0, 0, 0])
+    factor = mc.material.get('emissiveFactor', [0, 0, 0])
 
-    if tex_block is None: return None
+    if factor != [1, 1, 1]:
+        if block:
+            block = mc.adjoin({
+                'node': 'MixRGB',
+                'prop.blend_type': 'MULTIPLY',
+                'value.Fac': 1,
+                'input.Color1': block,
+                'value.Color2': factor + [1],
+            })
+        else:
+            if factor == [0, 0, 0]:
+                block = None
+            else:
+                block = mc.adjoin({
+                    'node': 'RGB',
+                    'outvalue.0': factor + [1],
+                })
 
-    return mc.adjoin({
-        'node': 'Emission',
-        'input.Color': tex_block,
-    })
+    if block:
+        block = mc.adjoin({
+            'node': 'Emission',
+            'input.Color': block,
+        })
+
+    return block
 
 
 def create_shaded(mc):
@@ -151,19 +182,64 @@ def create_metalRough_pbr(mc):
     return mc.adjoin(params)
 
 
+def create_unlit(mc):
+    params = {
+        # TODO: pick a better node?
+        'node': 'Emission',
+    }
+
+    base_color_block = create_base_color(mc)
+    if base_color_block:
+        params['input.Color'] = base_color_block
+
+    return mc.adjoin(params)
+
+
+
 def create_base_color(mc):
-    # TODO: baseColorFactor
-    # TODO: vertex color
+    block = None
     if 'baseColorTexture' in mc.pbr:
-        return create_texture_block(
+        block = create_texture_block(
             mc.op,
             mc.idx,
             'baseColorTexture',
             mc.tree,
             mc.pbr['baseColorTexture'],
         )
-    else:
-        return None
+
+    if mc.idx in mc.op.materials_using_color0:
+        vert_color_block = mc.adjoin({
+            'node': 'Attribute',
+            'prop.attribute_name': 'COLOR_0',
+        })
+        if block:
+            block = mc.adjoin({
+                'node': 'MixRGB',
+                'prop.blend_type': 'MULTIPLY',
+                'value.Fac': 1,
+                'input.Color1': block,
+                'input.Color2': vert_color_block,
+            })
+        else:
+            block = vert_color_block
+
+    factor = mc.pbr.get('baseColorFactor', [1, 1, 1, 1])
+    if factor != [1, 1, 1, 1]:
+        if block:
+            block = mc.adjoin({
+                'node': 'MixRGB',
+                'prop.blend_type': 'MULTIPLY',
+                'value.Fac': 1,
+                'input.Color1': block,
+                'value.Color2': factor,
+            })
+        else:
+            block = mc.adjoin({
+                'node': 'RGB',
+                'outvalue.0': factor,
+            })
+
+    return block
 
 
 def create_metal_roughness(mc):
