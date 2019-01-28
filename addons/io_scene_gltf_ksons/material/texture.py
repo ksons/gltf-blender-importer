@@ -214,5 +214,6 @@ def create_texture_block(op, material_id, texture_type, tree, info):
     row = Block.row_align_center(subblocks, gutter=80)
 
     row.outputs = img_texture.outputs
+    row.img_node = img_texture
 
     return row

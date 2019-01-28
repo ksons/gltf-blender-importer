@@ -3,27 +3,41 @@ from . import block
 from .texture import create_texture_block
 Block = block.Block
 
-# FIXME: metallic-roughness materials are all-black in Blender 2.8's LookDev
-# mode (but they're fine in the Rendered view)
-
 class MaterialCreator:
     def adjoin(self, opts):
         new_node = self.tree.nodes.new('ShaderNode' + opts['node'])
         new_node.width = 140
         new_node.height = 100
 
+        def str_or_int(x):
+            try:
+                return int(x)
+            except ValueError:
+                return x
+
         input_blocks = []
         for key, val in opts.items():
             if key.startswith('input.'):
-                input_name = key[len('input.'):]
-                try:
-                    input_key = int(input_name)
-                except ValueError:
-                    input_key = input_name
-
+                input_key = str_or_int(key[len('input.'):])
                 self.links.new(val.outputs[0], new_node.inputs[input_key])
+                if val not in input_blocks:
+                    input_blocks.append(val)
 
-                input_blocks.append(val)
+            elif key.startswith('output.'):
+                output_part, input_part = key.split('/')
+                output_key = str_or_int(output_part[len('output.'):])
+                input_key = str_or_int(input_part[len('input.'):])
+                self.links.new(val.outputs[output_key], new_node.inputs[input_key])
+                if val not in input_blocks:
+                    input_blocks.append(val)
+
+            elif key.startswith('value.'):
+                input_name = key[len('value.'):]
+                new_node.inputs[input_name].default_value = val
+
+            elif key.startswith('prop.'):
+                prop_name = key[len('prop.'):]
+                setattr(new_node, prop_name, val)
 
         input_block = Block.col_align_right(input_blocks)
 
@@ -104,167 +118,92 @@ def create_emissive(mc):
         'input.Color': tex_block,
     })
 
-def create_shaded(mc):
-    return mc.adjoin({
-        'node': 'BsdfPrincipled',
-    })
 
-#
-#    create_emissive()
-#
-#    # Emissive block
-#    #
-#    #     [emissive texture] -> [multiply emissive factor] -> [emission shader] ->
-#    emissive_add_input = None
-#    if material.get('emissiveTexture'):
-#
-#
-#    # Create the right-most [main] -> [output] block
-#    g = tree.nodes.new('ShaderNodeGroup')
-#    g.name = 'main'
-#    g.width, g.height = 255, 452.75
-#    g.location = 0, 0
-#    if 'KHR_materials_unlit' in material.get('extensions', {}):
-#        pbr = material.get('pbrMetallicRoughness', {})
-#        g.node_tree = op.get('node_group', 'glTF Unlit')
-#    elif 'KHR_materials_pbrSpecularGlossiness' in material.get('extensions', {}):
-#        pbr = material['extensions']['KHR_materials_pbrSpecularGlossiness']
-#        g.node_tree = op.get('node_group', 'glTF Specular Glossiness')
-#    else:
-#        pbr = material.get('pbrMetallicRoughness', {})
-#        g.node_tree = op.get('node_group', 'glTF Metallic Roughness')
-#
-#    output = tree.nodes.new('ShaderNodeOutputMaterial')
-#    output.width, output.height = 140, 89.75
-#    output.location = 625, -50
-#    links.new(g.outputs[0], output.inputs[0])
-#
-#    right_block = Block(g, output)
-#
-#    # Fill in properties on [main].
-#    alpha_mode = material.get('alphaMode', 'OPAQUE')
-#    # mog_alpha modifies RGBA alpha values based on the alpha mode
-#    if alpha_mode == 'OPAQUE':
-#        def mog_alpha(rgba): return rgba[:3] + [1]
-#    elif alpha_mode == 'BLEND' or alpha_mode == 'MASK':
-#        def mog_alpha(rgba): return rgba
-#    else:
-#        print('unsupported alpha mode: %s' % alpha_mode)
-#        def mog_alpha(rgba): return rgba
-#
-#    if alpha_mode == 'MASK':
-#        g.inputs['AlphaMode'].default_value = 1.0
-#
-#    # This is only used in the Material view
-#    blend_mode = {
-#        'OPAQUE': 'OPAQUE',
-#        'MASK': 'CLIP',
-#        'BLEND': 'ALPHA',
-#    }.get(alpha_mode, 'OPAQUE')
-#    if not material.get('doubleSided', False) and blend_mode == 'OPAQUE':
-#        # Culling is emulated by making backfacing faces transparent, so we need
-#        # to enable alpha to get that to work
-#        blend_mode = 'CLIP'
-#    if bpy.app.version >= (2, 80, 0):
-#        mat.blend_method = blend_mode
-#    else:
-#        mat.game_settings.alpha_blend = blend_mode
-#
-#    def set_value(obj, key, input_name, mog=lambda x: x):
-#        if key in obj and input_name in g.inputs:
-#            g.inputs[input_name].default_value = mog(obj[key])
-#
-#    def rgb2rgba(rgb): return rgb + [1]
-#
-#    set_value(pbr, 'baseColorFactor', 'BaseColorFactor', mog=mog_alpha)
-#    set_value(pbr, 'diffuseFactor', 'DiffuseFactor', mog=mog_alpha)
-#    set_value(pbr, 'metallicFactor', 'MetallicFactor')
-#    set_value(pbr, 'roughnessFactor', 'RoughnessFactor')
-#    set_value(pbr, 'specularFactor', 'SpecularFactor', mog=rgb2rgba)
-#    set_value(pbr, 'glossinessFactor', 'GlossinessFactor')
-#    set_value(material, 'emissiveFactor', 'EmissiveFactor', mog=rgb2rgba)
-#    set_value(material, 'alphaCutoff', 'AlphaCutoff')
-#    set_value(material, 'doubleSided', 'DoubleSided', mog=int)
-#
-#    # Now input blocks. First, create blocks for all the textures that we need,
-#    # ie. that are both in the glTF file and are used by [main].
-#    input_blocks = []
-#    possible_textures = [
-#        # (object, property on object, name of the corresponding input on g)
-#        (pbr, 'baseColorTexture', 'BaseColor'),
-#        (pbr, 'diffuseTexture', 'Diffuse'),
-#        (pbr, 'metallicRoughnessTexture', 'MetallicRoughness'),
-#        (pbr, 'specularGlossinessTexture', 'Specular'),
-#        (material, 'normalTexture', 'Normal'),
-#        (material, 'occlusionTexture', 'Occlusion'),
-#        (material, 'emissiveTexture', 'Emissive'),
-#    ]
-#    for (obj, prop, input) in possible_textures:
-#        if prop not in obj or input not in g.inputs:
-#            continue
-#
-#        info = obj[prop]
-#        tex_block = create_texture_block(op, idx, prop, tree, info)
-#        if not tex_block:
-#            continue
-#        input_blocks.append(tex_block)
-#
-#        tex = tex_block.img_texture_node
-#        tex.name = {
-#            'BaseColor': 'Base Color Texture',
-#            'Diffuse': 'Diffuse Texture',
-#            'MetallicRoughness': 'Metallic-Roughness Texture',
-#            'Specular': 'Specular-Glossiness Texture',
-#            'Normal': 'Normal Texture',
-#            'Occlusion': 'Occlusion Texture',
-#            'Emissive': 'Emissive Texture',
-#        }[input]
-#        tex.label = tex.name
-#        links.new(tex.outputs[0], g.inputs[input])
-#
-#        # Special handling for particular types
-#        if input == 'BaseColor' or input == 'Diffuse':
-#            tex.color_space = 'COLOR'
-#            if alpha_mode != 'OPAQUE':
-#                links.new(tex.outputs[1], g.inputs['Alpha'])
-#        elif input == 'MetallicRoughness':
-#            tex.color_space = 'NONE'
-#        elif input == 'Specular':
-#            tex.color_space = 'COLOR'
-#            links.new(tex.outputs[1], g.inputs['Glossiness'])
-#        elif input == 'Normal':
-#            tex.color_space = 'NONE'
-#            if 'scale' in material['normalTexture']:
-#                g.inputs['NormalScale'].default_value = material['normalTexture']['scale']
-#        elif input == 'Occlusion':
-#            tex.color_space = 'NONE'
-#            if 'strength' in material['occlusionTexture']:
-#                g.inputs['OcclusionStrength'].default_value = material['occlusionTexture']['strength']
-#        elif input == 'Emissive':
-#            tex.color_space = 'COLOR'
-#
-#    # Add a vertex color node if needed.
-#    use_color0 = idx in op.materials_using_color0
-#    if use_color0:
-#        node = tree.nodes.new('ShaderNodeAttribute')
-#        node.name = 'Vertex Colors'
-#        node.attribute_name = 'COLOR_0'
-#        links.new(node.outputs[0], g.inputs['COLOR_0'])
-#        g.inputs['Use COLOR_0'].default_value = 1.0
-#
-#        input_blocks.append(node)
-#
-#    # Lay the blocks out like this and then center the whole thing.
-#    #     .-------. .---.
-#    #     | Input | | M | .--------.
-#    #    .--------+ | a | | Output |
-#    #    |  Input | | i | '--------'
-#    #    '--------+ | n |
-#    #     | Input | |   |
-#    #     '-------' '---'
-#    left_block = Block.col_align_right(input_blocks, gutter=70)
-#    whole = Block.row_align_center([left_block, right_block], gutter=600)
-#    block.center_at_origin(whole)
-#
-#    return mat
-#
+def create_shaded(mc):
+    if mc.type == 'metalRough':
+        return create_metalRough_pbr(mc)
+    elif mc.type == 'specGloss':
+        return create_specGloss_pbr(mc)
+    elif mc.type == 'unlit':
+        return create_unlit(mc)
+    else:
+        assert(False)
+
+
+def create_metalRough_pbr(mc):
+    params = {
+        'node': 'BsdfPrincipled',
+    }
+
+    base_color_block = create_base_color(mc)
+    if base_color_block:
+        params['input.Base Color'] = base_color_block
+
+    metal_roughness_block = create_metal_roughness(mc)
+    if metal_roughness_block:
+        params['output.G/input.Roughness'] = metal_roughness_block
+        params['output.B/input.Metallic'] = metal_roughness_block
+
+    normal_block = create_normal_block(mc)
+    if normal_block:
+        params['input.Normal'] = normal_block
+
+    return mc.adjoin(params)
+
+
+def create_base_color(mc):
+    # TODO: baseColorFactor
+    # TODO: vertex color
+    if 'baseColorTexture' in mc.pbr:
+        return create_texture_block(
+            mc.op,
+            mc.idx,
+            'baseColorTexture',
+            mc.tree,
+            mc.pbr['baseColorTexture'],
+        )
+    else:
+        return None
+
+
+def create_metal_roughness(mc):
+    # TODO: factors
+    if 'metallicRoughnessTexture' in mc.pbr:
+        tex_block = create_texture_block(
+            mc.op,
+            mc.idx,
+            'metallicRoughnessTexture',
+            mc.tree,
+            mc.pbr['metallicRoughnessTexture'],
+        )
+        tex_block.img_node.color_space = 'NONE'
+
+        return mc.adjoin({
+            'node': 'SeparateRGB',
+            'input.Image': tex_block,
+        })
+
+    else:
+        return None
+
+
+
+def create_normal_block(mc):
+    if 'normalTexture' in mc.material:
+        tex_block = create_texture_block(
+            mc.op,
+            mc.idx,
+            'normalTexture',
+            mc.tree,
+            mc.material['normalTexture'],
+        )
+        tex_block.img_node.color_space = 'NONE'
+
+        return mc.adjoin({
+            'node': 'NormalMap',
+            'prop.uv_map': 'TEXCOORD_%d' % mc.material['normalTexture'].get('texCoord', 0),
+            'value.Strength': mc.material['normalTexture'].get('scale', 1),
+            'input.Color': tex_block,
+        })
+    else:
+        return None
