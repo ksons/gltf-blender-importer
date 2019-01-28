@@ -21,7 +21,7 @@ def create_mesh(op, mesh_spec):
     # material.compute_materials_using_color0, which, note, must be called
     # before this function.
     needs_color0 = any(
-        prim.get('material', 'default_material') in op.materials_using_color0
+        op.material_infos[prim.get('material', 'default_material')].num_color_sets > 0
         for prim in primitives
     )
     if needs_color0:

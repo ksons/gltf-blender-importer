@@ -288,10 +288,10 @@ def create_base_color(mc):
         # Remember for alpha value
         mc.img_node = block.img_node
 
-    if mc.idx in mc.op.materials_using_color0:
+    for color_set_num in range(0, mc.op.material_infos[mc.idx].num_color_sets):
         vert_color_block = mc.adjoin({
             'node': 'Attribute',
-            'prop.attribute_name': 'COLOR_0',
+            'prop.attribute_name': 'COLOR_%d' % color_set_num,
         })
         if block:
             block = mc.adjoin({

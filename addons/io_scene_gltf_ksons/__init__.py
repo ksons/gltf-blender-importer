@@ -137,7 +137,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         # Precomputations
         if self.import_animations:
             animation.gather_animation_info(self)
-        material.compute_materials_using_color0(self)
+        material.material_precomputation(self)
 
         vnode.create_vtree(self)
         node.realize_vtree(self)
