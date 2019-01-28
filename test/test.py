@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Run and report on automated tests for the importer.
 
@@ -165,7 +165,11 @@ report.set_defaults(func=cmd_report)
 report_times = subs.add_parser('report-times', help='Print import times for last report')
 report_times.set_defaults(func=cmd_report_times)
 
-args = p.parse_args()
+argv = sys.argv
+if len(argv) == 1:
+    print('assuming you wanted to run the tests\n')
+    argv.append('run')
+args = p.parse_args(argv[1:])
 result = args.func(args)
 if type(result) == int:
     sys.exit(result)
