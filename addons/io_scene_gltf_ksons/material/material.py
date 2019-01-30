@@ -16,6 +16,9 @@ class MaterialCreator:
         new_node.width = 140
         new_node.height = 100
 
+        if 'group' in opts:
+            new_node.node_tree = self.op.get('node_group', opts['group'])
+
         def str_or_int(x):
             try:
                 return int(x)
@@ -60,6 +63,9 @@ class MaterialCreator:
         return block
 
     def connect(self, connector, connector_key, node, socket_type, socket_key):
+        if connector is None:
+            return None
+
         if type(connector) == Value:
             connector = [connector]
 
@@ -182,10 +188,8 @@ def create_emissive(mc):
     block = None
     if 'emissiveTexture' in mc.material:
         block = create_texture_block(
-            mc.op,
-            mc.idx,
+            mc,
             'emissiveTexture',
-            mc.tree,
             mc.material['emissiveTexture']
         )
 
@@ -307,10 +311,8 @@ def create_base_color(mc):
     block = None
     if 'baseColorTexture' in mc.pbr:
         block = create_texture_block(
-            mc.op,
-            mc.idx,
+            mc,
             'baseColorTexture',
-            mc.tree,
             mc.pbr['baseColorTexture'],
         )
         # Remember for alpha value
@@ -352,10 +354,8 @@ def create_metal_roughness(mc):
     block = None
     if 'metallicRoughnessTexture' in mc.pbr:
         tex_block = create_texture_block(
-            mc.op,
-            mc.idx,
+            mc,
             'metallicRoughnessTexture',
-            mc.tree,
             mc.pbr['metallicRoughnessTexture'],
         )
         tex_block.img_node.color_space = 'NONE'
@@ -378,7 +378,7 @@ def create_metal_roughness(mc):
             Value(rough_factor, record_to='roughFactor'),
         ]
 
-    metal_factor_block = None
+    outputs = []
     if metal_factor != 1:
         metal_factor_block = mc.adjoin({
             'node': 'Math',
@@ -389,8 +389,10 @@ def create_metal_roughness(mc):
             block.outputs[0],
             metal_factor_block.outputs[0].node.inputs[1],
         )
-
-    rough_factor_block = None
+        outputs.append(metal_factor_block.outputs[0])
+    else:
+        metal_factor_block = Block.empty()
+        outputs.append(block.outputs[0])
     if rough_factor != 1:
         rough_factor_block = mc.adjoin({
             'node': 'Math',
@@ -401,29 +403,22 @@ def create_metal_roughness(mc):
             block.outputs[1],
             rough_factor_block.outputs[0].node.inputs[1],
         )
+        outputs.append(rough_factor_block.outputs[0])
+    else:
+        rough_factor_block = Block.empty()
+        outputs.append(block.outputs[1])
+    factor_block = Block.col_align_right([metal_factor_block, rough_factor_block])
+    block = Block.row_align_center([block, factor_block])
+    block.outputs = outputs
 
-    factor_blocks = []
-    if metal_factor_block:
-        factor_blocks.append(metal_factor_block)
-    if rough_factor_block:
-        factor_blocks.append(rough_factor_block)
-    factor_block = Block.col_align_right(factor_blocks)
-    final_block = Block.row_align_center([block, factor_block])
-    final_block.outputs = [block.outputs[0], block.outputs[1]]
-    if metal_factor_block:
-        final_block.outputs[0] = metal_factor_block.outputs[0]
-    if rough_factor_block:
-        final_block.outputs[1] = rough_factor_block.outputs[0]
-    return final_block
+    return block
 
 
 def create_normal_block(mc):
     if 'normalTexture' in mc.material:
         tex_block = create_texture_block(
-            mc.op,
-            mc.idx,
+            mc,
             'normalTexture',
-            mc.tree,
             mc.material['normalTexture'],
         )
         tex_block.img_node.color_space = 'NONE'

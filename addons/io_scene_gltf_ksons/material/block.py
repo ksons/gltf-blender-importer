@@ -39,6 +39,13 @@ class Block:
         self.bottom_right += delta
 
     @staticmethod
+    # Creates an empty block (used for spacing purposes)
+    def empty(width=100, height=140):
+        block = Block()
+        block.bottom_right = Vector((width, -height))
+        return block
+
+    @staticmethod
     # Aligns the blocks in a center-aligned row. Returns a new Block containing
     # the blocks.
     #       .--.         .---.
@@ -79,45 +86,6 @@ class Block:
             y -= h + gutter
 
         return Block(*blocks)
-
-    # Wraps this Block in a frame. Modifies self in place to have the new frame
-    # as its only child.
-    #
-    #     .------Label------.
-    #     | .--.  .-------. |
-    #     | |A |  |   B   | |
-    #     | '--'  '-------' |
-    #     '-----------------'
-    #
-    # This is not just a convenience method. Frames are a little weird and
-    # unless you handle them carefully, their location property isn't
-    # necessarily their top-left point, so putting one in a Block without using
-    # this is dicey.
-    def framify(self, tree, label):
-        # Blender puts this much padding around Frame edges
-        padding = 30
-
-        move_to(self, Vector((padding, padding)))
-
-        frame = tree.nodes.new('NodeFrame')
-        frame.location = Vector((0, 0))
-        frame.label = label
-        w, h = width(self), height(self)
-        frame.width, frame.height = w + 2*padding, h + 2*padding
-        frame.shrink = False
-
-        def add_to_frame(block):
-            if type(block) == Block:
-                for child in block.children:
-                    add_to_frame(child)
-            else:
-                block.parent = frame
-                # Makes the frame resize to fit the child
-                block.location = block.location
-        add_to_frame(self)
-
-        self.children = [frame]
-        self.bottom_right += Vector((2*padding, 2*padding))
 
 
 def top_left(block):

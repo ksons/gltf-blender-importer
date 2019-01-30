@@ -5,30 +5,22 @@ Block = block.Block
 #
 # The texture block reads the appropriate texcoord set, possibly transforms
 # the UVs for KHR_texture_transform, applies wrapping to the UVs, and
-# samples an image texture. It looks like
+# samples an image texture. In general, it looks like
 #
 #    [Texcoord] -> [UV Transform] -> [UV Wrap] -> [Img Texture] ->
-#
-# where some of these sub-blocks may be missing.
 
 
-def create_texture_block(op, material_id, texture_type, tree, info):
-    links = tree.links
-    texture = op.gltf['textures'][info['index']]
-
-    # First create the [Img Texture] block
-    img_texture = tree.nodes.new('ShaderNodeTexImage')
-    if 'MSFT_texture_dds' in info.get('extensions', {}):
-        image_id = texture['MSFT_texture_dds']['source']
-    elif 'source' not in texture:
-        return None
-    else:
-        image_id = texture['source']
-    img_texture.width, img_texture.height = 216, 247.25
-    img_texture.image = op.get('image', image_id)
-    subblocks = [img_texture]
+def create_texture_block(mc, texture_type, info):
+    texture = mc.op.gltf['textures'][info['index']]
 
     texcoord_set = info.get('texCoord', 0)
+    block = None
+    # We'll create the texcoord block lazily
+    def create_texcoord_block():
+        return mc.adjoin({
+            'node': 'UVMap',
+            'prop.uv_map': 'TEXCOORD_%d' % texcoord_set,
+        })
 
     # The [UV Transform] block looks like
     #
@@ -40,7 +32,8 @@ def create_texture_block(op, material_id, texture_type, tree, info):
     needs_tex_transform = (
         'KHR_texture_transform' in info.get('extensions', {}) or
         # This is set if the texture transform is animated
-        op.material_texture_has_animated_transform.get((material_id, texture_type))
+        # TODO update
+        mc.op.material_texture_has_animated_transform.get((mc.idx, texture_type))
     )
     if needs_tex_transform:
         t = info.get('extensions', {}).get('KHR_texture_transform', {})
@@ -50,42 +43,134 @@ def create_texture_block(op, material_id, texture_type, tree, info):
         rotation = t.get('rotation', 0)
         scale = t.get('scale', [1, 1])
 
-        # First [gltf<->Blender]
-        conv_before = tree.nodes.new('ShaderNodeGroup')
-        conv_before.location = [167, -206]
-        conv_before.width = 180
-        conv_before.node_tree = op.get('node_group', 'glTF <-> Blender UV')
+        # [Texcoord] -> [gltf<->Blender]
+        if not block:
+            block = create_texcoord_block()
+        block = mc.adjoin({
+            'node': 'Group',
+            'group': 'glTF <-> Blender UV',
+            'input.0': block,
+        })
 
-        # [Transform]
-        xform = tree.nodes.new('ShaderNodeMapping')
-        xform.name = texture_type + '_xform'
-        xform.location = [408, -108]
-        xform.vector_type = 'POINT'
-        xform.translation[0], xform.translation[1] = offset
-        xform.rotation[2] = rotation
-        xform.scale[0], xform.scale[1] = scale
+        # -> [Transform]
+        block = mc.adjoin({
+            'node': 'Mapping',
+            'dim': (320, 275),
+            'prop.vector_type': 'POINT',
+            'input.0': block,
+        })
+        mapping_node = block.outputs[0].node
+        mapping_node.translation[0], mapping_node.translation[1] = offset
+        mapping_node.rotation[2] = rotation
+        mapping_node.scale[0], mapping_node.scale[1] = scale
 
-        # Last [gltf<->Blender]
-        conv_after = tree.nodes.new('ShaderNodeGroup')
-        conv_after.location = [790, -200]
-        conv_after.width = 180
-        conv_after.node_tree = op.get('node_group', 'glTF <-> Blender UV')
+        # TODO: record paths
 
-        links.new(conv_before.outputs[0], xform.inputs[0])
-        links.new(xform.outputs[0], conv_after.inputs[0])
-
-        subblock = Block(conv_before, xform, conv_after)
-        subblock.framify(tree, 'Texcoord Transform')
-        subblock.inputs = [conv_before.inputs[0]]
-        subblock.outputs = [conv_after.outputs[0]]
-        subblocks = [subblock] + subblocks
+        # -> [gltf<->Blender]
+        block = mc.adjoin({
+            'node': 'Group',
+            'group': 'glTF <-> Blender UV',
+            'input.0': block,
+        })
 
     if 'sampler' in texture:
-        sampler = op.gltf['samplers'][texture['sampler']]
+        sampler = mc.op.gltf['samplers'][texture['sampler']]
     else:
         sampler = {}
 
-    # Set the magnification filter.
+    # Handle the wrapping mode. The Image Texture Node can have a wrapping mode
+    # but it doesn't cover all possibilities in glTF.
+    CLAMP_TO_EDGE = 33071
+    MIRRORED_REPEAT = 33648
+    REPEAT = 10497
+
+    wrap_s = sampler.get('wrapS', REPEAT)
+    wrap_t = sampler.get('wrapT', REPEAT)
+    if wrap_s not in [CLAMP_TO_EDGE, MIRRORED_REPEAT, REPEAT]:
+        print('unknown wrapping mode:', wrap_s)
+        wrap_s = REPEAT
+    if wrap_t not in [CLAMP_TO_EDGE, MIRRORED_REPEAT, REPEAT]:
+        print('unknown wrapping mode:', wrap_t)
+        wrap_t = REPEAT
+
+    if (wrap_s, wrap_t) == (CLAMP_TO_EDGE, CLAMP_TO_EDGE):
+        extension = 'EXTEND'
+    elif (wrap_s, wrap_t) == (REPEAT, REPEAT):
+        extension = 'REPEAT'
+    else:
+        # Blender couldn't handle it. We have to insert the [UV Wrap] block. It
+        # looks like
+        #
+        #                      -> [wrap S] ->
+        #    -> [separate XYZ]                [combine XYZ] ->
+        #                      -> [wrap T] ->
+        #
+        # where the [wrap _] blocks are Group Nodes that compute
+        #
+        #     x -> x mod 1               for REPEAT
+        #
+        #     x -> / y       if y <= 1   for MIRRORED_REPEAT
+        #          \ 2 - y   if y > 1
+        #            where y = x mod 2
+        #
+        # and where the [wrap _] block is omitted (ie. the value is passed
+        # through) for CLAMP_TO_EDGE because we set the wrapping mode on the
+        # Texture Node to do clamping (the artifacts produced when we use
+        # clamping for the actual wrapping mode are slightly better than if we
+        # used another mode).
+        extension = 'EXTEND'
+
+        if not block:
+            block = create_texcoord_block()
+
+        # -> [separate XYZ]
+        block = mc.adjoin({
+            'node': 'SeparateXYZ',
+            'input.0': block,
+        })
+
+        # -> [wrap S]
+        # -> [wrap T]
+        gltf_to_blender_wrap = dict([
+            (REPEAT, 'Texcoord REPEAT'),
+            (MIRRORED_REPEAT, 'Texcoord MIRRORED_REPEAT'),
+        ])
+        outputs = []
+        if wrap_s != CLAMP_TO_EDGE:
+            s_block = mc.adjoin({
+                'node': 'Group',
+                'dim': (230, 100),
+                'group': gltf_to_blender_wrap[wrap_s],
+            })
+            mc.links.new(block.outputs[0], s_block.outputs[0].node.inputs[0])
+            outputs.append(s_block.outputs[0])
+        else:
+            s_block = Block.empty()
+            outputs.append(block.outputs[0])
+        if wrap_t != CLAMP_TO_EDGE:
+            t_block = mc.adjoin({
+                'node': 'Group',
+                'dim': (230, 100),
+                'group': gltf_to_blender_wrap[wrap_t],
+            })
+            mc.links.new(block.outputs[1], t_block.outputs[0].node.inputs[0])
+            outputs.append(t_block.outputs[0])
+        else:
+            t_block = Block.empty()
+            outputs.append(block.outputs[1])
+        wrapped_block = Block.col_align_right([s_block, t_block])
+        block = Block.row_align_center([block, wrapped_block])
+        block.outputs = outputs
+
+        # -> [combine XYZ]
+        block = mc.adjoin({
+            'node': 'CombineXYZ',
+            'output.0/input.0': block,
+            'output.1/input.1': block,
+        })
+
+    # Determine interpolation.
+
     NEAREST = 9728
     LINEAR = 9729
     NEAREST_MIPMAP_NEAREST = 9984
@@ -111,109 +196,32 @@ def create_texture_block(op, material_id, texture_type, tree, info):
     # We can't set the min and mag and filters separately in Blender. Just
     # prefer linear, unless both were nearest.
     if (min_filter, mag_filter) == (NEAREST, NEAREST):
-        img_texture.interpolation = 'Closest'
+        interpolation = 'Closest'
     else:
-        img_texture.interpolation = 'Linear'
+        interpolation = 'Linear'
 
-    # Handle the wrapping mode. The Image Texture Node can have a wrapping mode
-    # but it doesn't cover all possibilities in glTF.
-    CLAMP_TO_EDGE = 33071
-    MIRRORED_REPEAT = 33648
-    REPEAT = 10497
-
-    wrap_s = sampler.get('wrapS', REPEAT)
-    wrap_t = sampler.get('wrapT', REPEAT)
-    if wrap_s not in [CLAMP_TO_EDGE, MIRRORED_REPEAT, REPEAT]:
-        print('unknown wrapping mode:', wrap_s)
-        wrap_s = REPEAT
-    if wrap_t not in [CLAMP_TO_EDGE, MIRRORED_REPEAT, REPEAT]:
-        print('unknown wrapping mode:', wrap_t)
-        wrap_t = REPEAT
-
-    if (wrap_s, wrap_t) == (CLAMP_TO_EDGE, CLAMP_TO_EDGE):
-        img_texture.extension = 'EXTEND'
-    elif (wrap_s, wrap_t) == (REPEAT, REPEAT):
-        img_texture.extension = 'REPEAT'
+    # Find source
+    if 'MSFT_texture_dds' in info.get('extensions', {}):
+        image_id = texture['MSFT_texture_dds']['source']
+        image = mc.op.get('image', image_id)
+    elif 'source' not in texture:
+        image = None
     else:
-        # Blender couldn't handle it. We have to insert the [UV Wrap] block. It
-        # looks like
-        #
-        #                      -> [wrap S] ->
-        #    -> [separate XYZ]                [combine XYZ] ->
-        #                      -> [wrap T] ->
-        #
-        # where the [wrap _] blocks are Group Nodes that compute
-        #
-        #     x -> x mod 1               for REPEAT
-        #
-        #     x -> / y       if y <= 1   for MIRRORED_REPEAT
-        #          \ 2 - y   if y > 1
-        #            where y = x mod 2
-        #
-        # and where the [wrap _] block is omitted (ie. the value is passed
-        # through) for CLAMP_TO_EDGE because we set the wrapping mode on the
-        # Texture Node to do clamping (the artifacts produced when we use
-        # clamping for the actual wrapping mode are slightly better than if we
-        # used another mode).
-        img_texture.extension = 'EXTEND'
+        image_id = texture['source']
+        image = mc.op.get('image', image_id)
 
-        nodes = []
+    # -> [TexImage]
+    if not block and texcoord_set != 0:
+        block = create_texcoord_block()
+    block = mc.adjoin({
+        'node': 'TexImage',
+        'dim': (220, 250),
+        'prop.image': image,
+        'prop.interpolation': interpolation,
+        'prop.extension': extension,
+        'input.0': block,
+    })
 
-        # [separate XYZ]
-        sep_xyz = tree.nodes.new('ShaderNodeSeparateXYZ')
-        sep_xyz.location = [212, 12]
-        nodes.append(sep_xyz)
+    block.img_node = block.outputs[0].node
 
-        # [combine XYZ]
-        com_xyz = tree.nodes.new('ShaderNodeCombineXYZ')
-        com_xyz.location = [727, 45]
-        nodes.append(com_xyz)
-
-        def do_component(wrap, which, y):
-            if wrap == CLAMP_TO_EDGE:
-                links.new(sep_xyz.outputs[which], com_xyz.inputs[which])
-            else:
-                n = tree.nodes.new('ShaderNodeGroup')
-                nodes.append(n)
-                n.width = 222
-                n.location = [430, y]
-                group_name = (
-                    'Texcoord REPEAT'
-                    if wrap == REPEAT
-                    else 'Texcoord MIRRORED_REPEAT'
-                )
-                n.node_tree = op.get('node_group', group_name)
-                links.new(sep_xyz.outputs[which], n.inputs[0])
-                links.new(n.outputs[0], com_xyz.inputs[which])
-
-        # [wrap S]
-        do_component(wrap_s, 'X', y=90)
-        # [wrap T]
-        do_component(wrap_t, 'Y', y=-50)
-
-        subblock = Block(*nodes)
-        subblock.framify(tree, 'Texcoord Wrap')
-        subblock.inputs = [sep_xyz.inputs[0]]
-        subblock.outputs = [com_xyz.outputs[0]]
-        subblocks = [subblock] + subblocks
-
-    # Now we handle the [Texcoord] block. If there is only an [Img Texture]
-    # subblock and the texcoord set is 0 (the most common case), we can skip
-    # this too, since the Texture Node will pick it up automatically.
-    if len(subblocks) == 1 and texcoord_set == 0:
-        pass
-    else:
-        texcoord_node = tree.nodes.new('ShaderNodeUVMap')  # TODO: is this the right kind of node?
-        texcoord_node.uv_map = 'TEXCOORD_%d' % texcoord_set
-        subblocks = [texcoord_node] + subblocks
-
-    # Wire the subblocks up
-    for i in range(1, len(subblocks)):
-        links.new(subblocks[i-1].outputs[0], subblocks[i].inputs[0])
-
-    row = Block.row_align_center(subblocks, gutter=80)
-
-    row.outputs = img_texture.outputs
-    row.img_node = img_texture
-
-    return row
+    return block
