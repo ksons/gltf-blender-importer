@@ -1,7 +1,14 @@
+import json
 import bpy
 from . import block
 from .texture import create_texture_block
 Block = block.Block
+
+class Value:
+    def __init__(self, value, record_to=''):
+        self.value = value
+        self.record_to = record_to
+
 
 class MaterialCreator:
     def adjoin(self, opts):
@@ -19,25 +26,24 @@ class MaterialCreator:
         for key, val in opts.items():
             if key.startswith('input.'):
                 input_key = str_or_int(key[len('input.'):])
-                self.links.new(val.outputs[0], new_node.inputs[input_key])
-                if val not in input_blocks:
-                    input_blocks.append(val)
+                input_block = self.connect(val, 0, new_node, 'inputs', input_key)
+                if input_block and input_block not in input_blocks:
+                    input_blocks.append(input_block)
 
             elif key.startswith('output.'):
-                output_part, input_part = key.split('/')
-                output_key = str_or_int(output_part[len('output.'):])
-                input_key = str_or_int(input_part[len('input.'):])
-                self.links.new(val.outputs[output_key], new_node.inputs[input_key])
-                if val not in input_blocks:
-                    input_blocks.append(val)
+                if '/' in key:
+                    output_part, input_part = key.split('/')
+                    output_key = str_or_int(output_part[len('output.'):])
+                    input_key = str_or_int(input_part[len('input.'):])
+                    input_block = self.connect(val, output_key, new_node, 'inputs', input_key)
+                    if input_block and input_block not in input_blocks:
+                        input_blocks.append(input_block)
 
-            elif key.startswith('value.'):
-                input_name = str_or_int(key[len('value.'):])
-                new_node.inputs[input_name].default_value = val
-
-            elif key.startswith('outvalue.'):
-                output_name = str_or_int(key[len('outvalue.'):])
-                new_node.outputs[output_name].default_value = val
+                else:
+                    output_key = str_or_int(key[len('output.'):])
+                    input_block = self.connect(val, 0, new_node, 'outputs', output_key)
+                    if input_block and input_block not in input_blocks:
+                        input_blocks.append(input_block)
 
             elif key.startswith('prop.'):
                 prop_name = key[len('prop.'):]
@@ -53,9 +59,34 @@ class MaterialCreator:
 
         return block
 
+    def connect(self, connector, connector_key, node, socket_type, socket_key):
+        if type(connector) == Value:
+            connector = [connector]
+
+        if type(connector) == list:
+            self.connect_value(connector[connector_key], node, socket_type, socket_key)
+            return None
+
+        else:
+            assert(socket_type == 'inputs')
+            self.connect_block(connector, connector_key, node.inputs[socket_key])
+            return connector
+
+    def connect_value(self, value, node, socket_type, socket_key):
+        getattr(node, socket_type)[socket_key].default_value = value.value
+        if value.record_to:
+            self.op.material_infos[self.idx].paths[value.record_to] = (
+                'nodes[' + json.dumps(node.name) + ']' +
+                '.' + socket_type + '[' + json.dumps(socket_key) + ']'
+            )
+
+    def connect_block(self, block, output_key, socket):
+        self.links.new(block.outputs[output_key], socket)
+
 
 def create_material(op, idx):
-    """Create a Blender material for the glTF materials[idx]. If idx is the
+    """
+    Create a Blender material for the glTF materials[idx]. If idx is the
     special value 'default_material', create a Blender material for the default
     glTF material instead.
     """
@@ -165,18 +196,15 @@ def create_emissive(mc):
             block = mc.adjoin({
                 'node': 'MixRGB',
                 'prop.blend_type': 'MULTIPLY',
-                'value.Fac': 1,
+                'input.Fac': Value(1),
                 'input.Color1': block,
-                'value.Color2': factor + [1],
+                'input.Color2': Value(factor + [1], record_to='emissiveFactor'),
             })
         else:
             if factor == [0, 0, 0]:
                 block = None
             else:
-                block = mc.adjoin({
-                    'node': 'RGB',
-                    'outvalue.0': factor + [1],
-                })
+                block = Value(factor + [1], record_to='emissiveFactor')
 
     if block:
         block = mc.adjoin({
@@ -200,7 +228,7 @@ def create_alpha_block(mc):
     block = mc.adjoin({
         'node': 'Math',
         'prop.operation': 'SUBTRACT',
-        'value.0': 1,
+        'input.0': Value(1),
     })
     # Link the image texture's alpha into invert block's second input slot
     # TODO: shouldn't we use the base color alpha instead?
@@ -216,7 +244,7 @@ def create_alpha_block(mc):
             'node': 'Math',
             'prop.operation': 'GREATER_THAN',
             'input.0': block,
-            'value.1': alpha_cutoff,
+            'input.1': Value(alpha_cutoff, record_to='alphaCutoff'),
         })
 
     transparent_block = mc.adjoin({
@@ -252,8 +280,8 @@ def create_metalRough_pbr(mc):
 
     metal_roughness_block = create_metal_roughness(mc)
     if metal_roughness_block:
-        params['output.G/input.Roughness'] = metal_roughness_block
-        params['output.B/input.Metallic'] = metal_roughness_block
+        params['output.0/input.Metallic'] = metal_roughness_block
+        params['output.1/input.Roughness'] = metal_roughness_block
 
     normal_block = create_normal_block(mc)
     if normal_block:
@@ -297,7 +325,7 @@ def create_base_color(mc):
             block = mc.adjoin({
                 'node': 'MixRGB',
                 'prop.blend_type': 'MULTIPLY',
-                'value.Fac': 1,
+                'input.Fac': Value(1),
                 'input.Color1': block,
                 'input.Color2': vert_color_block,
             })
@@ -310,21 +338,18 @@ def create_base_color(mc):
             block = mc.adjoin({
                 'node': 'MixRGB',
                 'prop.blend_type': 'MULTIPLY',
-                'value.Fac': 1,
+                'input.Fac': Value(1),
                 'input.Color1': block,
-                'value.Color2': factor,
+                'input.Color2': Value(factor, record_to='baseColorFactor'),
             })
         else:
-            block = mc.adjoin({
-                'node': 'RGB',
-                'outvalue.0': factor,
-            })
+            block = Value(factor, record_to='baseColorFactor')
 
     return block
 
 
 def create_metal_roughness(mc):
-    # TODO: factors
+    block = None
     if 'metallicRoughnessTexture' in mc.pbr:
         tex_block = create_texture_block(
             mc.op,
@@ -335,13 +360,61 @@ def create_metal_roughness(mc):
         )
         tex_block.img_node.color_space = 'NONE'
 
-        return mc.adjoin({
+        block = mc.adjoin({
             'node': 'SeparateRGB',
             'input.Image': tex_block,
         })
+        block.outputs = [block.outputs['B'], block.outputs['G']]
 
-    else:
-        return None
+    metal_factor = mc.pbr.get('metallicFactor', 1)
+    rough_factor = mc.pbr.get('roughFactor', 1)
+
+    if metal_factor == 1 and rough_factor == 1:
+        return block
+
+    if not block:
+        return [
+            Value(metal_factor, record_to='metallicFactor'),
+            Value(rough_factor, record_to='roughFactor'),
+        ]
+
+    metal_factor_block = None
+    if metal_factor != 1:
+        metal_factor_block = mc.adjoin({
+            'node': 'Math',
+            'prop.operation': 'MULTIPLY',
+            'input.0': Value(metal_factor, record_to='metallicFactor'),
+        })
+        mc.links.new(
+            block.outputs[0],
+            metal_factor_block.outputs[0].node.inputs[1],
+        )
+
+    rough_factor_block = None
+    if rough_factor != 1:
+        rough_factor_block = mc.adjoin({
+            'node': 'Math',
+            'prop.operation': 'MULTIPLY',
+            'input.0': Value(rough_factor, record_to='roughnessFactor'),
+        })
+        mc.links.new(
+            block.outputs[1],
+            rough_factor_block.outputs[0].node.inputs[1],
+        )
+
+    factor_blocks = []
+    if metal_factor_block:
+        factor_blocks.append(metal_factor_block)
+    if rough_factor_block:
+        factor_blocks.append(rough_factor_block)
+    factor_block = Block.col_align_right(factor_blocks)
+    final_block = Block.row_align_center([block, factor_block])
+    final_block.outputs = [block.outputs[0], block.outputs[1]]
+    if metal_factor_block:
+        final_block.outputs[0] = metal_factor_block.outputs[0]
+    if rough_factor_block:
+        final_block.outputs[1] = rough_factor_block.outputs[0]
+    return final_block
 
 
 def create_normal_block(mc):
@@ -358,7 +431,7 @@ def create_normal_block(mc):
         return mc.adjoin({
             'node': 'NormalMap',
             'prop.uv_map': 'TEXCOORD_%d' % mc.material['normalTexture'].get('texCoord', 0),
-            'value.Strength': mc.material['normalTexture'].get('scale', 1),
+            'input.Strength': Value(mc.material['normalTexture'].get('scale', 1), record_to='normalScale'),
             'input.Color': tex_block,
         })
     else:
