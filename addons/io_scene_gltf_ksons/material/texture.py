@@ -1,3 +1,4 @@
+import json
 from . import block
 Block = block.Block
 
@@ -32,8 +33,7 @@ def create_texture_block(mc, texture_type, info):
     needs_tex_transform = (
         'KHR_texture_transform' in info.get('extensions', {}) or
         # This is set if the texture transform is animated
-        # TODO update
-        mc.op.material_texture_has_animated_transform.get((mc.idx, texture_type))
+        (texture_type + '-transform') in mc.op.material_infos[mc.idx].liveness
     )
     if needs_tex_transform:
         t = info.get('extensions', {}).get('KHR_texture_transform', {})
@@ -64,7 +64,9 @@ def create_texture_block(mc, texture_type, info):
         mapping_node.rotation[2] = rotation
         mapping_node.scale[0], mapping_node.scale[1] = scale
 
-        # TODO: record paths
+        mc.op.material_infos[mc.idx].paths[texture_type + '-transform'] = (
+            'nodes[' + json.dumps(mapping_node.name) + ']'
+        )
 
         # -> [gltf<->Blender]
         block = mc.adjoin({

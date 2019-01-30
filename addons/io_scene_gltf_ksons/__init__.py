@@ -127,7 +127,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         self.caches = {}
-        self.material_texture_has_animated_transform = {}
 
         self.load_config()
         self.set_conversions()
@@ -135,9 +134,9 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         load.load(self)
 
         # Precomputations
+        material.material_precomputation(self)
         if self.import_animations:
             animation.gather_animation_info(self)
-        material.material_precomputation(self)
 
         vnode.create_vtree(self)
         node.realize_vtree(self)

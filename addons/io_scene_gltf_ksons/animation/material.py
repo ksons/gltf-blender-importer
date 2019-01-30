@@ -8,7 +8,7 @@ def add_material_animation(op, anim_id, material_id, data):
     material = op.get('material', material_id)
     node_tree = material.node_tree
 
-    name = "%s@%s (Material)" % (
+    name = '%s@%s (Material)' % (
         animation.get('name', 'animations[%d]' % anim_id),
         material.name,
     )
@@ -19,47 +19,20 @@ def add_material_animation(op, anim_id, material_id, data):
     if anim_id == 0:
         node_tree.animation_data_create().action = action
 
-    # The main group (eg. pbrMetallicRoughness) in every material has name
-    # 'main'
-    main_name = 'main'
-    # Maps a property name in the glTF JSON to the name of the corresponding
-    # input on the main group.
-    prop_to_input = {
-        'emissiveFactor': 'EmissiveFactor',
-        'alphaCutoff': 'AlphaCutoff',
-        'normalTexture/scale': 'NormalScale',
-        'occlusionTexture/strength': 'OcclusionStrength',
-        'baseColorFactor': 'BaseColorFactor',
-        'metallicFactor': 'MetallicFactor',
-        'roughnessFactor': 'RoughnessFactor',
-        'diffuseFactor': 'DiffuseFactor',
-        'specularFactor': 'SpecularFactor',
-        'glossinessFactor': 'GlossinessFactor',
-    }
-
     fcurves = []
 
     for prop, sampler in data.get('properties', {}).items():
-        if prop not in prop_to_input:
-            continue
-        input_name = prop_to_input[prop]
-        input_id = node_tree.nodes[main_name].inputs.find(input_name)
-        if input_id == -1:
-            continue
-
         curve = Curve.for_sampler(op, sampler)
-        data_path = 'nodes[%s].inputs[%d].default_value' % (
-            quote(main_name), input_id
-        )
+        data_path = op.material_infos[material_id].paths[prop]
         fcurves += curve.make_fcurves(op, action, data_path)
 
     if fcurves:
-        group = action.groups.new('Properties')
+        group = action.groups.new('Material Property')
         for fcurve in fcurves:
             fcurve.group = group
 
     for texture_type, samplers in data.get('texture_transform', {}).items():
-        base_path = 'nodes[%s]' % quote(texture_type + '_xform')
+        base_path = op.material_infos[material_id].paths[texture_type + '-transform']
 
         fcurves = []
 

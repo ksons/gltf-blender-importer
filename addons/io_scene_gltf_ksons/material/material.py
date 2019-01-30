@@ -80,10 +80,13 @@ class MaterialCreator:
 
     def connect_value(self, value, node, socket_type, socket_key):
         getattr(node, socket_type)[socket_key].default_value = value.value
+        # Record the data path to this socket in our material info so the
+        # animation creator can find it to animate
         if value.record_to:
             self.op.material_infos[self.idx].paths[value.record_to] = (
                 'nodes[' + json.dumps(node.name) + ']' +
-                '.' + socket_type + '[' + json.dumps(socket_key) + ']'
+                '.' + socket_type + '[' + json.dumps(socket_key) + ']' +
+                '.default_value'
             )
 
     def connect_block(self, block, output_key, socket):
@@ -99,6 +102,7 @@ def create_material(op, idx):
     mc = MaterialCreator()
     mc.op = op
     mc.idx = idx
+    mc.liveness = op.material_infos[idx].liveness
 
     if idx == 'default_material':
         mc.material = {}
@@ -195,7 +199,7 @@ def create_emissive(mc):
 
     factor = mc.material.get('emissiveFactor', [0, 0, 0])
 
-    if factor != [1, 1, 1]:
+    if factor != [1, 1, 1] or 'emissiveFactor' in mc.liveness:
         if block:
             block = mc.adjoin({
                 'node': 'MixRGB',
@@ -205,7 +209,7 @@ def create_emissive(mc):
                 'input.Color2': Value(factor + [1], record_to='emissiveFactor'),
             })
         else:
-            if factor == [0, 0, 0]:
+            if factor == [0, 0, 0] and 'emissiveFactor' not in mc.liveness:
                 block = None
             else:
                 block = Value(factor + [1], record_to='emissiveFactor')
@@ -335,7 +339,7 @@ def create_base_color(mc):
             block = vert_color_block
 
     factor = mc.pbr.get('baseColorFactor', [1, 1, 1, 1])
-    if factor != [1, 1, 1, 1]:
+    if factor != [1, 1, 1, 1] or 'baseColorFactor' in mc.liveness:
         if block:
             block = mc.adjoin({
                 'node': 'MixRGB',
@@ -369,9 +373,6 @@ def create_metal_roughness(mc):
     metal_factor = mc.pbr.get('metallicFactor', 1)
     rough_factor = mc.pbr.get('roughFactor', 1)
 
-    if metal_factor == 1 and rough_factor == 1:
-        return block
-
     if not block:
         return [
             Value(metal_factor, record_to='metallicFactor'),
@@ -379,7 +380,7 @@ def create_metal_roughness(mc):
         ]
 
     outputs = []
-    if metal_factor != 1:
+    if metal_factor != 1 or 'metallicFactor' in mc.liveness:
         metal_factor_block = mc.adjoin({
             'node': 'Math',
             'prop.operation': 'MULTIPLY',
@@ -393,7 +394,7 @@ def create_metal_roughness(mc):
     else:
         metal_factor_block = Block.empty()
         outputs.append(block.outputs[0])
-    if rough_factor != 1:
+    if rough_factor != 1 or 'roughnessFactor' in mc.liveness:
         rough_factor_block = mc.adjoin({
             'node': 'Math',
             'prop.operation': 'MULTIPLY',
@@ -426,7 +427,7 @@ def create_normal_block(mc):
         return mc.adjoin({
             'node': 'NormalMap',
             'prop.uv_map': 'TEXCOORD_%d' % mc.material['normalTexture'].get('texCoord', 0),
-            'input.Strength': Value(mc.material['normalTexture'].get('scale', 1), record_to='normalScale'),
+            'input.Strength': Value(mc.material['normalTexture'].get('scale', 1), record_to='normalTexture/scale'),
             'input.Color': tex_block,
         })
     else:

@@ -116,6 +116,10 @@ def gather_animation(op, anim_id):
                 .setdefault(int(material_id), {})
                 .setdefault('properties', {})
              )[prop] = sampler
+
+            # Record that this property is live (don't skip it during material creation)
+            op.material_infos[int(material_id)].liveness.add(prop)
+
             continue
 
         # Texture transform properties
@@ -133,8 +137,8 @@ def gather_animation(op, anim_id):
                 .setdefault(texture_type, {})
              )[path] = sampler
 
-            # Make a note that this material/texture has a transform animation.
-            op.material_texture_has_animated_transform[(int(material_id), texture_type)] = True
+            # Record that this property is live (don't skip it during material creation)
+            op.material_infos[int(material_id)].liveness.add(texture_type + '-transform')
 
             continue
 
