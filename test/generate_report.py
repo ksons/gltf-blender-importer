@@ -18,13 +18,16 @@ import bpy
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 samples_path = os.path.join(base_dir, 'glTF-Sample-Models', '2.0')
+site_local_path = os.path.join(base_dir, 'site_local')
 report_path = os.path.join(base_dir, 'report.json')
 
 tests = []
 
 files = (
     glob.glob(samples_path + '/**/*.gltf', recursive=True) +
-    glob.glob(samples_path + '/**/*.glb', recursive=True)
+    glob.glob(samples_path + '/**/*.glb', recursive=True) +
+    glob.glob(site_local_path + '/**/*.glb', recursive=True) +
+    glob.glob(site_local_path + '/**/*.glb', recursive=True)
 )
 
 # Skip Draco encoded files for now
