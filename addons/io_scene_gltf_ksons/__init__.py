@@ -124,6 +124,14 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         'time t is computed as framerate * t.',
         default=60.0,
     )
+    always_doublesided = BoolProperty(
+        name='Always double-sided',
+        description=(
+            'Make all materials double-sided, even if the glTF says they should be '
+            'single-sided (ie. says backfacing tris should be culled).'
+        ),
+        default=True,
+    )
 
     def execute(self, context):
         self.caches = {}
@@ -173,6 +181,10 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col.prop(self, 'import_animations')
         col.prop(self, 'framerate')
 
+        col = layout.box().column()
+        col.label(text='Materials:', icon='MATERIAL_DATA')
+        col.prop(self, 'always_doublesided')
+
     def get(self, kind, id):
         cache = self.caches.setdefault(kind, {})
         if id in cache:
@@ -204,7 +216,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'import_under_current_scene', 'global_scale', 'axis_conversion',
             'smooth_polys', 'split_meshes',
             'import_animations', 'framerate', 'bone_rotation_mode',
-            'bone_rotation_axis',
+            'bone_rotation_axis', 'always_doublesided'
         ]:
             setattr(self, opt, keywords[opt])
 
