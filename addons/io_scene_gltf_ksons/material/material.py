@@ -132,17 +132,22 @@ def create_material(op, idx):
     create_node_tree(mc)
 
     # Set the viewport alpha mode
+    # NOTE: since we use alpha to simulate backface culling, culling won't work
+    # for materials that are OPAQUE in the material view.
     alpha_mode = mc.material.get('alphaMode', 'OPAQUE')
-    blend_method = {
-        # Blender: glTF
-        'OPAQUE': 'OPAQUE',
-        'MASK': 'CLIP',
-        'BLEND': 'ALPHA',
-     }.get(alpha_mode, 'OPAQUE')
+    if alpha_mode not in ['OPAQUE', 'MASK', 'BLEND']:
+        print('unknown alpha mode %s' % alpha_mode)
+        alpha_mode = 'OPAQUE'
     if getattr(bl_material, 'blend_method', None):
-        bl_material.blend_method = blend_method
+        bl_material.blend_method = alpha_mode
     else:
-        bl_material.game_settings.alpha_blend = blend_method
+        bl_material.game_settings.alpha_blend = {
+            # glTF: Blender
+            'OPAQUE': 'OPAQUE',
+            'MASK': 'CLIP',
+            'BLEND': 'ALPHA',
+        }[alpha_mode]
+
 
     # Set diffuse/specular color (for solid view)
     if 'baseColorFactor' in mc.pbr:
@@ -174,9 +179,9 @@ def create_node_tree(mc):
     if alpha_block:
         block = mc.adjoin({
             'node': 'MixShader',
-            'input.1': block,
+            'input.2': block,
             'output.0/input.Fac': alpha_block,
-            'output.1/input.2': alpha_block,
+            'output.1/input.1': alpha_block,
         })
 
     mc.adjoin({
@@ -226,26 +231,17 @@ def create_emissive(mc):
 def create_alpha_block(mc):
     alpha_mode = mc.material.get('alphaMode', 'OPAQUE')
 
+    if alpha_mode not in ['OPAQUE', 'MASK', 'BLEND']:
+        alpha_mode = 'OPAQUE'
+
     if alpha_mode == 'OPAQUE':
         return None
 
-    if alpha_mode not in ['MASK', 'BLEND']:
-        print('unknown alpha mode %s' % alpha_mode)
-        return None
+    # Create an empty block with the baseColor/diffuse texture's alpha
+    block = Block.empty(0, 0)
+    block.outputs = [mc.img_node.outputs[1]]
 
-    block = mc.adjoin({
-        'node': 'Math',
-        'prop.operation': 'SUBTRACT',
-        'input.0': Value(1),
-    })
-    # Link the image texture's alpha into invert block's second input slot
-    # TODO: shouldn't we use the base color alpha instead?
-    if getattr(mc, 'img_node', None):
-        mc.links.new(
-            mc.img_node.outputs[1],
-            block.outputs[0].node.inputs[1]
-        )
-
+    # Alpha cutoff in MASK mode
     if alpha_mode == 'MASK':
         alpha_cutoff = mc.material.get('alphaCutoff', 0.5)
         block = mc.adjoin({
@@ -253,6 +249,24 @@ def create_alpha_block(mc):
             'prop.operation': 'GREATER_THAN',
             'input.0': block,
             'input.1': Value(alpha_cutoff, record_to='alphaCutoff'),
+        })
+
+    # Handle doublesidedness
+    if not mc.material.get('doubleSided', False):
+        sided_block = mc.adjoin({
+            'node': 'NewGeometry',
+        })
+        sided_block = mc.adjoin({
+            'node': 'Math',
+            'prop.operation': 'SUBTRACT',
+            'input.0': Value(1),
+            'output.Backfacing/input.1': sided_block,
+        })
+        block = mc.adjoin({
+            'node': 'Math',
+            'prop.operation': 'MULTIPLY',
+            'input.1': block,
+            'input.0': sided_block,
         })
 
     transparent_block = mc.adjoin({

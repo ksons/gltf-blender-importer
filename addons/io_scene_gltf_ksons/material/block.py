@@ -60,7 +60,8 @@ class Block:
             w, h = width(block), height(block)
             dh = (max_height - h) / 2
             move_to(block, Vector((x, y - dh)))
-            x += w + gutter
+            if w != 0:
+                x += w + gutter
 
         return Block(*blocks)
 
@@ -83,7 +84,8 @@ class Block:
             w, h = width(block), height(block)
             dw = max_width - w
             move_to(block, Vector((x + dw, y)))
-            y -= h + gutter
+            if h != 0:
+                y -= h + gutter
 
         return Block(*blocks)
 
