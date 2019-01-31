@@ -8,6 +8,8 @@ from bpy_extras.image_utils import load_image
 def create_image(op, idx):
     image = op.gltf['images'][idx]
 
+    name = image.get('name', 'image-%d' % idx)
+
     img = None
     if 'uri' in image:
         uri = image['uri']
@@ -20,6 +22,8 @@ def create_image(op, idx):
             else:
                 buffer = base64.b64decode(uri[found_at + 8:])
         else:
+            if name not in image:
+                name = os.path.basename(uri)
             # Load the image from disk
             image_location = os.path.join(op.base_path, uri)
             img = load_image(image_location)
@@ -34,12 +38,12 @@ def create_image(op, idx):
         # from memory. We'll write it to a temp file and load it from there.
         # Yes, this is a hack :)
         with tempfile.TemporaryDirectory() as tmpdir:
-            img_path = os.path.join(tmpdir, 'image_%d' % idx)
+            img_path = os.path.join(tmpdir, 'image-%d' % idx)
             with open(img_path, 'wb') as f:
                 f.write(buffer)
             img = load_image(img_path)
             img.pack()  # TODO: should we use as_png?
 
-    img.name = image.get('name', 'images[%d]' % idx)
+    img.name = name
 
     return img

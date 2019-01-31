@@ -201,6 +201,7 @@ def create_emissive(mc):
             'emissiveTexture',
             mc.material['emissiveTexture']
         )
+        block.img_node.label = 'EMISSIVE'
 
     factor = mc.material.get('emissiveFactor', [0, 0, 0])
 
@@ -333,6 +334,7 @@ def create_base_color(mc):
             'baseColorTexture',
             mc.pbr['baseColorTexture'],
         )
+        block.img_node.label = 'BASE COLOR'
         # Remember for alpha value
         mc.img_node = block.img_node
 
@@ -376,6 +378,7 @@ def create_metal_roughness(mc):
             'metallicRoughnessTexture',
             mc.pbr['metallicRoughnessTexture'],
         )
+        tex_block.img_node.label = 'METALLIC ROUGHNESS'
         tex_block.img_node.color_space = 'NONE'
 
         block = mc.adjoin({
@@ -436,6 +439,7 @@ def create_normal_block(mc):
             'normalTexture',
             mc.material['normalTexture'],
         )
+        tex_block.img_node.label = 'NORMAL'
         tex_block.img_node.color_space = 'NONE'
 
         return mc.adjoin({
