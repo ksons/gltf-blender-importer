@@ -22,11 +22,7 @@ class Curve:
 
         if c.interp == 'CUBICSPLINE':
             # Move the in-tangents and out-tangents into separate arrays.
-            c.ins, c.ords, c.outs = (
-                [c.ords[i] for i in range(0, len(c.ords), 3)],
-                [c.ords[i] for i in range(1, len(c.ords), 3)],
-                [c.ords[i] for i in range(2, len(c.ords), 3)],
-            )
+            c.ins, c.ords, c.outs = c.ords[::3], c.ords[1::3], c.ords[2::3]
 
         assert(len(c.times) == len(c.ords))
 
