@@ -2,6 +2,8 @@ import bmesh
 import bpy
 from mathutils import Vector
 
+MAX_NUM_COLOR_SETS = 8
+MAX_NUM_TEXCOORD_SETS = 8
 
 def create_mesh(op, mesh_spec):
     idx, primitive_idx = mesh_spec
@@ -196,6 +198,12 @@ def add_primitive_to_bmesh(op, bme, primitive, material_index):
     # Set vertex colors. Add them in the order COLOR_0, COLOR_1, etc.
     set_num = 0
     while 'COLOR_%d' % set_num in attributes:
+        if set_num >= MAX_NUM_COLOR_SETS:
+            print('more than %d COLOR_n attributes; dropping the rest on the floor',
+                MAX_NUM_COLOR_SETS
+            )
+            break
+
         layer_name = 'COLOR_%d' % set_num
         layer = get_layer(bme.loops.layers.color, layer_name)
 
@@ -221,6 +229,12 @@ def add_primitive_to_bmesh(op, bme, primitive, material_index):
     # Set texcoords
     set_num = 0
     while 'TEXCOORD_%d' % set_num in attributes:
+        if set_num >= MAX_NUM_TEXCOORD_SETS:
+            print('more than %d TEXCOORD_n attributes; dropping the rest on the floor',
+                MAX_NUM_TEXCOORD_SETS
+            )
+            break
+
         layer_name = 'TEXCOORD_%d' % set_num
         layer = get_layer(bme.loops.layers.uv, layer_name)
 

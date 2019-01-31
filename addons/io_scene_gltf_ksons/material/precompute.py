@@ -1,3 +1,4 @@
+from ..mesh import MAX_NUM_COLOR_SETS
 
 class MaterialInfo:
     def __init__(self):
@@ -25,6 +26,9 @@ def material_procomputation(op):
         for primitive in mesh['primitives']:
             i = 0
             while 'COLOR_%d' % i in primitive['attributes']:
+                if i >= MAX_NUM_COLOR_SETS:
+                    break
+
                 mat = primitive.get('material', 'default_material')
                 if i >= op.material_infos[mat].num_color_sets:
                     op.material_infos[mat].num_color_sets = i + 1
