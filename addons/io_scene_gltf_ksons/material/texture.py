@@ -178,7 +178,7 @@ def create_texture_block(mc, texture_type, info):
     NEAREST_MIPMAP_NEAREST = 9984
     LINEAR_MIPMAP_NEAREST = 9985
     NEAREST_MIPMAP_LINEAR = 9986
-    LINEAR_MIPMAP_LINEAR = 9986
+    LINEAR_MIPMAP_LINEAR = 9987
     AUTO_FILTER = LINEAR  # which one to use if unspecified
 
     mag_filter = sampler.get('magFilter', AUTO_FILTER)
@@ -192,8 +192,8 @@ def create_texture_block(mc, texture_type, info):
     elif min_filter in [LINEAR, LINEAR_MIPMAP_NEAREST, LINEAR_MIPMAP_LINEAR]:
         min_filter = LINEAR
     else:
-        print('unknown texture min filter:', mag_filter)
-        mag_filter = AUTO_FILTER
+        print('unknown texture min filter:', min_filter)
+        min_filter = AUTO_FILTER
 
     # We can't set the min and mag and filters separately in Blender. Just
     # prefer linear, unless both were nearest.
