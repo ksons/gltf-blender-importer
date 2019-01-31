@@ -21,8 +21,14 @@ def link_tree_into_scene(vnode, scene):
         link_tree_into_scene(child, scene)
 
 
+def link_ancestors_into_scene(vnode, scene):
+    while vnode:
+        link_vnode_into_scene(vnode, scene)
+        vnode = vnode.parent
+
+
 def create_blender_scenes(op):
-    if op.import_under_current_scene:
+    if op.import_into_current_scene:
         # Link everything into the current scene
         link_tree_into_scene(op.root_vnode, bpy.context.scene)
         bpy.context.scene.render.engine = 'CYCLES'
@@ -42,11 +48,7 @@ def create_blender_scenes(op):
         for node_id in roots:
             vnode = op.node_id_to_vnode[node_id]
 
-            # A root glTF node isn't necessarily a root vnode. Walk up to find
-            # the root of the tree its contained in.
-            while vnode.parent.type != 'IMAGINARY_ROOT':
-                vnode = vnode.parent
-
+            link_ancestors_into_scene(vnode, blender_scene)
             link_tree_into_scene(vnode, blender_scene)
 
             # Select this scene if it is the default

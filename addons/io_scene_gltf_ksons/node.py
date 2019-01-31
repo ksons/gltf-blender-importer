@@ -1,3 +1,4 @@
+import os
 import bpy
 from mathutils import Vector, Matrix
 from .compat import mul
@@ -21,6 +22,9 @@ def realize_vtree(op):
 
         elif vnode.type == 'BONE':
             realize_bone(op, vnode)
+
+        elif vnode.type == 'ROOT':
+            realize_root(op, vnode)
 
         for child in vnode.children:
             realize_vnode(child)
@@ -114,12 +118,12 @@ def realize_object(op, vnode):
 
     # Set our parent
     if vnode.parent:
-        if vnode.parent.type == 'OBJECT':
-            obj.parent = vnode.parent.blender_object
-        elif vnode.parent.type == 'BONE':
+        if vnode.parent.type == 'BONE':
             obj.parent = vnode.parent.armature_vnode.blender_object
             obj.parent_type = 'BONE'
             obj.parent_bone = vnode.parent.blender_name
+        elif vnode.parent.blender_object:
+            obj.parent = vnode.parent.blender_object
 
 
 def realize_armature(op, vnode):
@@ -162,3 +166,15 @@ def realize_bone(op, vnode):
     if vnode.parent:
         if getattr(vnode.parent, 'blender_editbone', None):
             editbone.parent = vnode.parent.blender_editbone
+
+
+def realize_root(op, vnode):
+    """
+    Realize the ROOT if the user requested it (giving it the same filename as
+    the glTF).
+    """
+    if not op.add_root:
+        return
+
+    obj = bpy.data.objects.new(os.path.basename(op.filepath), None)
+    vnode.blender_object = obj

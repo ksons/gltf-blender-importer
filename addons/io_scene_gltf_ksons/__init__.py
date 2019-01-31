@@ -48,14 +48,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
     )
 
-    import_under_current_scene = BoolProperty(
-        name='Import contents under current scene',
-        description='When enabled, all the objects will be placed in the current '
-        'scene and no scenes will be created.\n'
-        'When disabled, scenes will be created to match the ones in the '
-        'glTF file. Any object not in a scene will not be visible.',
-        default=True,
-    )
     global_scale = FloatProperty(
         name='Global Scale',
         description='Scales all locations by the given factor. Used to eg. change '
@@ -135,6 +127,22 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         ),
         default=True,
     )
+    import_into_current_scene = BoolProperty(
+        name='Import into current scene',
+        description='When enabled, all the objects will be placed in the current '
+        'scene and no scenes will be created.\n'
+        'When disabled, scenes will be created to match the ones in the '
+        'glTF file. Any object not in a scene will not be visible.',
+        default=True,
+    )
+    add_root = BoolProperty(
+        name='Add root node',
+        description=(
+            'When enabled, everything in the glTF file will be placed under a new '
+            'root node with the name of the .gltf/.glb file.'
+        ),
+        default=True,
+    )
 
     def execute(self, context):
         self.caches = {}
@@ -161,8 +169,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         layout = self.layout
         keywords = self.as_keywords()
 
-        layout.prop(self, 'import_under_current_scene')
-
         col = layout.box().column()
         col.label(text='Units:', icon='MANIPUL')
         col.prop(self, 'axis_conversion')
@@ -188,6 +194,11 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col = layout.box().column()
         col.label(text='Materials:', icon='MATERIAL_DATA')
         col.prop(self, 'always_doublesided')
+
+        col = layout.box().column()
+        col.label(text='Scene:', icon='SCENE_DATA')
+        col.prop(self, 'import_into_current_scene')
+        col.prop(self, 'add_root')
 
     def get(self, kind, id):
         cache = self.caches.setdefault(kind, {})
@@ -217,7 +228,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         """Load user-supplied options."""
         keywords = self.as_keywords()
         for opt in [
-            'import_under_current_scene', 'global_scale', 'axis_conversion',
+            'import_into_current_scene', 'add_root',
+            'global_scale', 'axis_conversion',
             'smooth_polys', 'split_meshes',
             'import_animations', 'framerate', 'bone_rotation_mode',
             'bone_rotation_axis', 'always_doublesided'

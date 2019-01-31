@@ -20,10 +20,8 @@ class VNode:
         self.trs = (Vector((0, 0, 0)), Quaternion((1, 0, 0, 0)), Vector((1, 1, 1)))
 
         # What type of Blender object will be created for this vnode: one of
-        # OBJECT, ARMATURE, BONE, or the special value IMAGINARY_ROOT. The
-        # IMAGINARY_ROOT doesn't get realized as anything in Blender, but having
-        # the whole graph be a tree instead of a forest makes certain graph
-        # processing easier.
+        # OBJECT, ARMATURE, BONE, or ROOT (for the special vnode that we use the
+        # turn the forest into a tree to make things easier to process).
         self.type = 'OBJECT'
 
         # Dicts of instance data
@@ -74,7 +72,7 @@ def create_vtree(op):
 #         /  \
 #       OBJ   OBJ
 #
-# (The imaginary root is also added, but we won't draw it)
+# (The ROOT is also added, but we won't draw it)
 def initial_vtree(op):
     nodes = op.gltf.get('nodes', [])
 
@@ -120,7 +118,7 @@ def initial_vtree(op):
 
     # Add a root node to make the forest of vnodes into a tree.
     op.root_vnode = VNode()
-    op.root_vnode.type = 'IMAGINARY_ROOT'
+    op.root_vnode.type = 'ROOT'
 
     for vnode in op.node_id_to_vnode.values():
         if vnode.parent == None:
