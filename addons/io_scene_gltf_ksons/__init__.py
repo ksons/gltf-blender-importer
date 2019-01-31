@@ -120,9 +120,12 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     )
     framerate = FloatProperty(
         name='Frames/second',
-        description='Used for animation. The Blender frame corresponding to the glTF '
-        'time t is computed as framerate * t.',
-        default=60.0,
+        description=(
+            'Used for animation. The Blender frame corresponding to the glTF time is '
+            'computed as framerate * t. Negative values or zero mean to use the '
+            "current scene's framerate."
+        ),
+        default=0.0,
     )
     always_doublesided = BoolProperty(
         name='Always double-sided',
@@ -156,6 +159,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     def draw(self, context):
         layout = self.layout
+        keywords = self.as_keywords()
 
         layout.prop(self, 'import_under_current_scene')
 
@@ -173,7 +177,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         col.label(text='Bones:', icon='BONE_DATA')
         col.label(text='(Tweak if bones point wrong)')
         col.prop(self, 'bone_rotation_mode')
-        if self.as_keywords()['bone_rotation_mode'] == 'MANUAL':
+        if keywords['bone_rotation_mode'] == 'MANUAL':
             col.prop(self, 'bone_rotation_axis')
 
         col = layout.box().column()
@@ -219,6 +223,9 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'bone_rotation_axis', 'always_doublesided'
         ]:
             setattr(self, opt, keywords[opt])
+
+        if self.framerate <= 0:
+            self.framerate = bpy.context.scene.render.fps
 
     def set_conversions(self):
         global_scale = self.global_scale
