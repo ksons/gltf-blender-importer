@@ -20,7 +20,7 @@ import sys
 base_dir = os.path.dirname(os.path.abspath(__file__))
 samples_path = os.path.join(base_dir, 'glTF-Sample-Models', '2.0')
 report_path = os.path.join(base_dir, 'report.json')
-test_script = os.path.join(base_dir, 'generate_report.py')
+test_script = os.path.join(base_dir, 'bl_generate_report.py')
 scripts_dir = os.path.join(base_dir, os.pardir)
 
 def cmd_get(args=None):
@@ -38,7 +38,7 @@ def cmd_get(args=None):
         raise
 
     try:
-        print("Fetching submodules (be patient)...")
+        print("Fetching submodules (WARNING: large download)...")
         subprocess.run(
             ['git', 'submodule', 'update', '--init', '--recursive'],
             cwd=base_dir,
@@ -75,10 +75,10 @@ def cmd_run(args):
 
     print()
 
-    # We're going to try to run Blender in a clean-ish environment for
-    # testing. we want to be sure we're using the current state of
-    # 'io_scene_gltf'. The user scripts variable expects an addons/plugin
-    # directory structure which we have in the projects root directory
+    # We're going to try to run Blender in a clean-ish environment for testing.
+    # we want to be sure we're using the current state of 'io_scene_gltf_ksons'.
+    # The user scripts variable expects an addons/plugin directory structure
+    # which we have in the projects root directory
     env = os.environ.copy()
     env['BLENDER_USER_SCRIPTS'] = scripts_dir
     subprocess.run(

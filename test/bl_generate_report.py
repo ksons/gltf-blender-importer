@@ -1,12 +1,7 @@
 """
-Runs importer tests in Blender and generates report file.
+Runs tests and writes the results to the report.json file.
 
-This script tests the glTF importer by trying to load the glTF
-sample files. It writes a report about the test results to the
-file report.json in the same directory as this script.
-
-This script is designed to be run inside Blender by run_tests.py.
-You probably don't want to try running it on its own.
+This should be executed inside Blender, not from normal Python!
 """
 
 import glob

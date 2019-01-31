@@ -1,31 +1,26 @@
 ## Testing
 
+The [glTF Sample Models](https://github.com/KhronosGroup/glTF-Sample-Models) are
+used for automated testing of the importer. A model file is considered to pass
+if importing it doesn't raise an exception.
+
 
 ### Instructions
 
-Just run
+To run tests. This will fetch the sample models on its first run (be warned,
+this is a big download). The optional `--exe` argument is to allow you to test
+multiple Blender versions.
 
-````
-./test.py run
-````
+    ./test.py run [--exe BLENDER-EXE-PATH]
 
-in this directory. The sample models are stored as a git submodule. The first
-time you run this, it will automatically initialize submodules to get the sample
-files (if needed).
+To display the results of the last test run. These are stored in `report.json`
+in this directory
 
-### About
+    ./test.py report
 
-The [glTF Sample Models](https://github.com/KhronosGroup/glTF-Sample-Models)
-are used for automated testing of the importer.
+To display the import times from the last test run
 
-When you run the tests, the glTF-Sample-Models/2.0/ directory is recursively
-searched to find .gltf and .glb files and then Blender tries to import
-each one. If the importer doesn't raise an exception, this counts as the
-test having "passed" :)
+    ./test.py report-times
 
-The results of the tests will be printed out: you should get a green "ok" if
-everything's good. They are also written to a JSON file in this directory
-called report.json. You can use this file or the exit code of run_tests.py
-to determine if the tests passed in a script.
-
-Call `./test.py -h` for more help.
+You can use the exit code from `run` and `report` (success=0) to determine if
+the tests passed programatically.
