@@ -272,7 +272,7 @@ def move_instances(op):
     #      (mesh)         /  |  \
     #                  OBJ  OBJ  OBJ
     #                (mesh)(mesh)(mesh)
-    if op.split_meshes:
+    if op.options['split_meshes']:
         def visit(vnode):
             children = list(vnode.children)
 
@@ -432,9 +432,9 @@ def adjust_bones(op):
 
             # Now pick a desired rotation
             axis = None
-            if op.bone_rotation_mode == 'MANUAL':
-                axis = op.bone_rotation_axis
-            elif op.bone_rotation_mode == 'AUTO':
+            if op.options['bone_rotation_mode'] == 'MANUAL':
+                axis = op.options['bone_rotation_axis']
+            elif op.options['bone_rotation_mode'] == 'AUTO':
                 # We choose an axis that makes our tail close to the head of the
                 # one of our children,
                 def guess_axis():
@@ -451,7 +451,7 @@ def adjust_bones(op):
                 # Otherwise use the same axis our parent used
                 if not axis:
                     axis = getattr(vnode.parent, 'correction_rotation_axis', '+Y')
-            elif op.bone_rotation_mode == 'NONE':
+            elif op.options['bone_rotation_mode'] == 'NONE':
                 axis = '+Y'
 
             cr = eulers[axis].to_quaternion()

@@ -1,3 +1,4 @@
+import bpy
 from mathutils import Vector, Quaternion, Matrix
 
 
@@ -45,7 +46,9 @@ class Curve:
                      transform=lambda x: x,
                      tangent_transform=None
                      ):
-        framerate = op.framerate
+        framerate = op.options['framerate']
+        if framerate <= 0:
+            framerate = bpy.context.scene.render.fps
         times = self.times
         ords = self.ords
         interp = self.interp

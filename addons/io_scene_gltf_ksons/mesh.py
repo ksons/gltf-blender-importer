@@ -56,7 +56,7 @@ def create_mesh(op, mesh_spec):
         me.materials.append(material)
 
     # Set polygon smoothing if the user requested it
-    if op.smooth_polys:
+    if op.options['smooth_polys']:
         for polygon in me.polygons:
             polygon.use_smooth = True
 

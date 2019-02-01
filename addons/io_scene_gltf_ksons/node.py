@@ -173,7 +173,7 @@ def realize_root(op, vnode):
     Realize the ROOT if the user requested it (giving it the same filename as
     the glTF).
     """
-    if not op.add_root:
+    if not op.options['add_root']:
         return
 
     obj = bpy.data.objects.new(os.path.basename(op.filepath), None)

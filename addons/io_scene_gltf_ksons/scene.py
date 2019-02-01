@@ -28,7 +28,7 @@ def link_ancestors_into_scene(vnode, scene):
 
 
 def create_blender_scenes(op):
-    if op.import_into_current_scene:
+    if op.options['import_into_current_scene']:
         # Link everything into the current scene
         link_tree_into_scene(op.root_vnode, bpy.context.scene)
         bpy.context.scene.render.engine = 'CYCLES'

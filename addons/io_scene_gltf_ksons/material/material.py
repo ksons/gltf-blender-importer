@@ -262,7 +262,7 @@ def create_alpha_block(mc):
         })
 
     # Handle doublesidedness
-    if not mc.material.get('doubleSided', False) and not mc.op.always_doublesided:
+    if not mc.material.get('doubleSided', False) and not mc.op.options['always_doublesided']:
         sided_block = mc.adjoin({
             'node': 'NewGeometry',
         })
