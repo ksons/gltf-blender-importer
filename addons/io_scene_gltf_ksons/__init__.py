@@ -170,7 +170,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         keywords = self.as_keywords()
 
         col = layout.box().column()
-        col.label(text='Units:', icon='MANIPUL')
+        col.label(text='Units:', icon='EMPTY_DATA')
         col.prop(self, 'axis_conversion')
         col.prop(self, 'global_scale')
 
@@ -187,7 +187,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             col.prop(self, 'bone_rotation_axis')
 
         col = layout.box().column()
-        col.label(text='Animation:', icon='OUTLINER_DATA_POSE')
+        col.label(text='Animation:', icon='POSE_HLT')
         col.prop(self, 'import_animations')
         col.prop(self, 'framerate')
 

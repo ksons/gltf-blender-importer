@@ -139,7 +139,12 @@ def create_material(op, idx):
         print('unknown alpha mode %s' % alpha_mode)
         alpha_mode = 'OPAQUE'
     if getattr(bl_material, 'blend_method', None):
-        bl_material.blend_method = alpha_mode
+        bl_material.blend_method = {
+            # glTF: Blender
+            'OPAQUE': 'OPAQUE',
+            'MASK': 'CLIP',
+            'BLEND': 'BLEND',
+        }[alpha_mode]
     else:
         bl_material.game_settings.alpha_blend = {
             # glTF: Blender
@@ -151,11 +156,14 @@ def create_material(op, idx):
 
     # Set diffuse/specular color (for solid view)
     if 'baseColorFactor' in mc.pbr:
-        bl_material.diffuse_color = mc.pbr['baseColorFactor'][:3]
+        diffuse_color = mc.pbr['baseColorFactor'][:len(bl_material.diffuse_color)]
+        bl_material.diffuse_color = diffuse_color
     if 'diffuseFactor' in mc.pbr:
-        bl_material.diffuse_color = mc.pbr['diffuseFactor'][:3]
+        diffuse_color = mc.pbr['baseColorFactor'][:len(bl_material.diffuse_color)]
+        bl_material.diffuse_color = diffuse_color
     if 'specularFactor' in mc.pbr:
-        bl_material.specular_color = mc.pbr['specularFactor']
+        specular_color = mc.pbr['specularFactor'][:len(bl_material.specular_color)]
+        bl_material.specular_color = specular_color
 
     return bl_material
 
