@@ -114,9 +114,10 @@ def create_material(op, idx):
     if 'KHR_materials_unlit' in mc.material.get('extensions', {}):
         mc.pbr = mc.material.get('pbrMetallicRoughness', {})
         mc.type = 'unlit'
-    elif 'KHR_materials_pbrSpecularGlossiness' in mc.material.get('extensions', {}):
-        mc.pbr = mc.material['extensions']['KHR_materials_pbrSpecularGlossiness']
-        mc.type = 'specGloss'
+    # TODO: re-enable specular glossiness
+    #elif 'KHR_materials_pbrSpecularGlossiness' in mc.material.get('extensions', {}):
+    #    mc.pbr = mc.material['extensions']['KHR_materials_pbrSpecularGlossiness']
+    #    mc.type = 'specGloss'
     else:
         mc.pbr = mc.material.get('pbrMetallicRoughness', {})
         mc.type = 'metalRough'

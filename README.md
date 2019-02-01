@@ -25,12 +25,12 @@ You can now import glTFs with **File > Import > KSons' glTF 2.0 (.glb/.gltf)**.
 See [INSTALL.md](INSTALL.md) for further installation instructions.
 
 ### Supported Extensions
-* EXT_property_animation (tentative until stabilized, material properties only)
+* ~~KHR_materials_pbrSpecularGlossiness~~ (TODO)
 * KHR_lights_punctual
-* KHR_materials_pbrSpecularGlossiness
 * KHR_materials_unlit
 * KHR_texture_transform
 * MSFT_texture_dds
+* EXT_property_animation (extension abandoned)
 
 ### Samples Renderings
 ![BoomBox](doc/boom-box.png)
