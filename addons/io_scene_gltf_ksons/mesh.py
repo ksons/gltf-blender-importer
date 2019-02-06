@@ -43,9 +43,7 @@ def create_mesh(op, mesh_spec):
 
         add_primitive_to_bmesh(op, bme, primitive, material_idx)
 
-    name = mesh.get('name', 'meshes[%d]' % idx)
-    if primitive_idx is not None:
-        name += '.primitives[%d]' % primitive_idx
+    name = mesh_name(op, mesh_spec)
     me = bpy.data.meshes.new(name)
     bmesh_to_mesh(bme, me)
     bme.free()
@@ -75,6 +73,20 @@ def create_mesh(op, mesh_spec):
             'result': me,
             'do_not_cache_me': True,
         }
+
+
+def mesh_name(op, mesh_spec):
+    mesh_idx, primitive_idx = mesh_spec
+    name = op.gltf['meshes'][mesh_idx].get('name', 'meshes[%d]' % mesh_idx)
+    if primitive_idx is not None:
+        # Look for a name on the extras property
+        extras = op.gltf['meshes'][mesh_idx]['primitives'][primitive_idx].get('extras')
+        if type(extras) == dict and type(extras.get('name')) == str and extras['name']:
+            primitive_name = extras['name']
+        else:
+            primitive_name = 'primitives[%d]' % primitive_idx
+        name += '.' + primitive_name
+    return name
 
 
 def bmesh_to_mesh(bme, me):

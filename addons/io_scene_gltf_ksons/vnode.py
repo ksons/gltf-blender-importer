@@ -1,6 +1,7 @@
 from math import pi
 from mathutils import Matrix, Quaternion, Vector, Euler
 from .compat import mul
+from .mesh import mesh_name
 
 # The node graph in glTF needs to fixed up quite a bit before it will work for
 # Blender. We first create a graph of "virtual nodes" to match the graph in the
@@ -280,7 +281,7 @@ def move_instances(op):
                     new_children = []
                     for prim_idx in range(0, num_prims):
                         child = VNode()
-                        child.name = vnode.name + '.primitives[%d]' % prim_idx
+                        child.name = mesh_name(op, (vnode.mesh['mesh'], prim_idx))
                         child.type = 'OBJECT'
                         child.parent = vnode
                         child.mesh = {
