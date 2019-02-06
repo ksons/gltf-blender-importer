@@ -79,29 +79,14 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     bone_rotation_mode = EnumProperty(
         items=[
             ('NONE', "Don't change", ''),
-            ('AUTO', 'Choose for me', ''),
-            ('MANUAL', 'Choose manually', ''),
+            ('POINT_TO_CHILDREN', 'Point to children', ''),
         ],
-        name='Axis',
-        description='Adjusts which local axis bones should point along. The axis they '
-        'points along is always +Y. This option lets you rotate them so another '
-        'axis becomes +Y.',
-        default='AUTO',
-    )
-    bone_rotation_axis = EnumProperty(
-        items=[
-            ('+X', '+X', '+X'),
-            ('-X', '-X', '-X'),
-            ('-Y', '-Y', '-Y'),
-            ('+Z', '+Z', '+Z'),
-            ('-Z', '-Z', '-Z'),
-        ],
-        name='+Y to',
-        description='If bones point the wrong way with the default value, enable '
-        '"Display > Axes" for the Armature and look in Edit mode. '
-        'You\'ll see that bones point along the local +Y axis. Decide '
-        'which local axis they should point along and put it here.',
-        default='+Z',
+        name='Direction',
+        description=(
+            'Adjusts which direction bones will point towards by rotating them so '
+            'their +Y axis points a different direction.'
+        ),
+        default='POINT_TO_CHILDREN',
     )
     import_animations = BoolProperty(
         name='Import Animations',
@@ -158,10 +143,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         col = layout.box().column()
         col.label(text='Bones:', icon='BONE_DATA')
-        col.label(text='(Tweak if bones point wrong)')
         col.prop(self, 'bone_rotation_mode')
-        if keywords['bone_rotation_mode'] == 'MANUAL':
-            col.prop(self, 'bone_rotation_axis')
 
         col = layout.box().column()
         col.label(text='Animation:', icon='POSE_HLT')

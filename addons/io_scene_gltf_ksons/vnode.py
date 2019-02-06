@@ -49,8 +49,6 @@ class VNode:
         # Correction to apply to the original TRS to get the editbone TR
         self.correction_rotation = Quaternion((1, 0, 0, 0))
         self.correction_homscale = 1
-        self.correction_rotation_axis = '+Y'
-        self.correction_rotation_permutation = [0, 1, 2]
 
         # Cache of actions that use an armature; used in importing animations
         self.armature_action_cache = {}
@@ -378,39 +376,17 @@ def move_instances(op):
 # So in both cases we now have LB(b) = L'(b).
 #
 # TODO: we can still pick a rotation when the scaling is heterogeneous
+
+# Maps an axis into a rotation carrying that axis into +Y
+AXIS_TO_PLUS_Y = {
+    '-X': Euler([0, 0, -pi/2]).to_quaternion(),
+    '+X': Euler([0, 0, pi/2]).to_quaternion(),
+    '-Y': Euler([pi, 0, 0]).to_quaternion(),
+    '+Y': Euler([0, 0, 0]).to_quaternion(),
+    '-Z': Euler([pi/2, 0, 0]).to_quaternion(),
+    '+Z': Euler([-pi/2, 0, 0]).to_quaternion(),
+}
 def adjust_bones(op):
-    # We always pick a rotation for cr(b) that is, up to sign, a permutation of
-    # the basis vectors. This is necessary for some of the algebra to work out
-    # in animtion importing.
-
-    # The possible axes that cr(b) will carry +Y into.
-    axes = {
-        '-X': Vector((-1,  0,  0)),
-        '+X': Vector((1,  0,  0)),
-        '-Y': Vector((0, -1,  0)),
-        '-Z': Vector((0,  0, -1)),
-        '+Z': Vector((0,  0,  1)),
-    }
-    # Each of these carries the corresponding axis into the +Y axis.
-    eulers = {
-        '-X': Euler([0, 0, pi/2]),
-        '+X': Euler([0, 0, -pi/2]),
-        '-Y': Euler([pi, 0, 0]),
-        '+Y': Euler([0, 0, 0]),
-        '-Z': Euler([-pi/2, 0, 0]),
-        '+Z': Euler([pi/2, 0, 0]),
-    }
-    # These are the underlying permutation of the basis vectors for the
-    # transforms in eulers. Used in animation importing.
-    perms = {
-        '-X': [1, 0, 2],
-        '+X': [1, 0, 2],
-        '-Y': [0, 1, 2],
-        '+Y': [0, 1, 2],
-        '-Z': [0, 2, 1],
-        '+Z': [0, 2, 1],
-    }
-
     # List of distances between bone heads (used for computing bone lengths)
     interbone_dists = []
 
@@ -430,40 +406,63 @@ def adjust_bones(op):
             # cs(b) = cs(pb) / s
             vnode.correction_homscale = cs_pb / s
 
-            # Now pick a desired rotation
-            axis = None
-            if op.options['bone_rotation_mode'] == 'MANUAL':
-                axis = op.options['bone_rotation_axis']
-            elif op.options['bone_rotation_mode'] == 'AUTO':
-                # We choose an axis that makes our tail close to the head of the
-                # one of our children,
-                def guess_axis():
+            if op.options['bone_rotation_mode'] == 'POINT_TO_CHILDREN':
+                # We always pick a rotation for cr(b) that is, up to sign, a permutation of
+                # the basis vectors. This is necessary for some of the algebra to work out
+                # in animtion importing.
+
+                # General idea: assume we have one child. We want to rotate so
+                # that our tail comes close to the child's head. Out tail lies
+                # on our +Y axis. The child head is going to be Rot[cr(b)^{-1}]
+                # child_t / cs(b) where b is us and child_t is the child's
+                # trs[0]. So we want to choose cr(b) so that this is as close as
+                # possible to +Y, ie. we want to rotate it so that its largest
+                # component is along the +Y axis. Note that only the sign of
+                # cs(b) affects this, not its magnitude (since the largest
+                # component of v, 2v, 3v, etc. are all the same).
+
+                # Pick the targest to rotate towards. If we have one child, use
+                # that.
+                if len(vnode.children) == 1:
+                    target = vnode.children[0].trs[0]
+                elif len(vnode.children) == 0:
+                    # As though we had a child displaced the same way we were
+                    # from our parent.
+                    target = vnode.trs[0]
+                else:
+                    # Mean of all our children.
+                    center = Vector((0, 0, 0))
                     for child in vnode.children:
-                        head = (cs_pb / s) * child.trs[0]
-                        length = head.length
-                        if length > 0.0005:
-                            for axis_name, vec in axes.items():
-                                if (vec * length - head).length < length * 0.25:
-                                    return axis_name
-                    return None
+                        center += child.trs[0]
+                    center /= len(vnode.children)
+                    target = center
+                if cs_pb / s < 0:
+                    target = -target
 
-                axis = guess_axis()
-                # Otherwise use the same axis our parent used
-                if not axis:
-                    axis = getattr(vnode.parent, 'correction_rotation_axis', '+Y')
+                x, y, z = abs(target[0]), abs(target[1]), abs(target[2])
+                if x > y and x > z:
+                    axis = '-X' if target[0] < 0 else '+X'
+                elif z > x and z > y:
+                    axis = '-Z' if target[2] < 0 else '+Z'
+                else:
+                    axis = '-Y' if target[1] < 0 else '+Y'
+
+                cr_inv = AXIS_TO_PLUS_Y[axis]
+                cr = cr_inv.conjugated()
+
             elif op.options['bone_rotation_mode'] == 'NONE':
-                axis = '+Y'
+                cr = Quaternion((1, 0, 0, 0))
 
-            cr = eulers[axis].to_quaternion()
-            pre_perm = perms[axis]
-            vnode.correction_rotation_axis = axis
+            else:
+                assert(False)
+
             vnode.correction_rotation = cr
-            vnode.correction_rotation_permutation = pre_perm
 
             # cr(pb)^{-1} r cr(b)
             editbone_r = mul(mul(cr_pb_inv, r), cr)
 
         else:
+            # TODO: we could still use a rotation here.
             # C(b) = 1
             vnode.correction_rotation = Quaternion((1, 0, 0, 0))
             vnode.correction_homscale = 1
@@ -483,7 +482,7 @@ def adjust_bones(op):
         # Try getting a bone length for our parent. The length that makes its
         # tail meet our head is considered best. Since the tail always lies
         # along the +Y ray, the closer we are to the this ray the better our
-        # length will be compared to the lgnths chosen by our siblings. This is
+        # length will be compared to the legnths chosen by our siblings. This is
         # measured by the "goodness". Amoung siblings with equal goodness, we
         # pick the smaller length, so the parent's tail will meet the nearest
         # child.
@@ -697,7 +696,7 @@ def is_non_degenerate_homscale(s):
     largest = max(abs(x) for x in s)
     smallest = min(abs(x) for x in s)
 
-    if smallest < 1e-10:
+    if smallest < 1e-5:
         # Too small; consider it zero
         return False
     return largest - smallest < largest * 0.001

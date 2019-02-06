@@ -122,16 +122,17 @@ def bone_trs(op, anim_id, node_id, samplers):
     #       Rot[r] Scale[s cs(b) / cs(pb)]
     #       Rot[cr(b)]
     #
-    #     { interchange the final Rot and Scale, permuting the scale }
+    #     { interchange the final Rot and Scale, permuting the scale
+    #       (see exchange_scale_rot_matrix) }
     #     = Trans[Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))]
     #       Rot[er^{-1}] Rot[cr(pb)^{-1}]
     #       Rot[r] Rot[cr(b)]
-    #       Scale[s']
+    #       Scale[M s cs(b) / cs(pb)]
     #
     #     { combine rotations }
     #     = Trans[Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))]
     #       Rot[er^{-1} cr(pb)^{-1} r cr(b)]
-    #       Scale[s']
+    #       Scale[M s cs(b) / cs(pb)]
     #     = Trans[pt] Rot[pr] Scale[ps]
     #
     # Note that pt depends only on t (and not r or s), and similarly for pr and
@@ -149,7 +150,7 @@ def bone_trs(op, anim_id, node_id, samplers):
 
     if 'translation' in samplers:
         # pt = Rot[er^{-1}](-et + Rot[cr(pb)^{-1}] t / cs(pb))
-        m = mul(
+        trans_mat = mul(
             er_inv.to_matrix().to_4x4(),
             mul(
                 Matrix.Translation(-et),
@@ -158,15 +159,15 @@ def bone_trs(op, anim_id, node_id, samplers):
         )
 
         convert_translation = op.convert_translation
-        def transform_translation(t): return mul(m, convert_translation(t))
+        def transform_translation(t): return mul(trans_mat, convert_translation(t))
 
         # In order to transform the tangents for cubic interpolation, we need to
         # know how the derivative transforms too. The other transforms are
         # linear, so their derivatives change the same way they do, but
         # transform_translation is affine, so its derivative changes by its
         # underlying linear map.
-        lin_m = m.to_3x3()
-        def transform_velocity(t): return mul(lin_m, convert_translation(t))
+        lin_mat = trans_mat.to_3x3()
+        def transform_velocity(t): return mul(lin_mat, convert_translation(t))
 
     if 'rotation' in samplers:
         # pt = er^{-1} cr(pb)^{-1} r cr(b)
@@ -177,19 +178,14 @@ def bone_trs(op, anim_id, node_id, samplers):
         def transform_rotation(r): return mul(mul(left_r, convert_rotation(r)), cr)
 
     if 'scale' in samplers:
-        # s' = permute(s cs(b) / cs(pb))
-        #    = permute(s) * scale_factor
-        #
-        # The permutation is introduced when we interchange a rotation with a
-        # scaling
-        scale_factor = cs * cs_pb_inv
-        perm = bone_vnode.correction_rotation_permutation
+        # ps = (M cs(b) / cs(pb)) s
+        # where M is the matrix from exchange_scale_rot_matrix
+        scale_mat = exchange_scale_rot_matrix(bone_vnode.correction_rotation)
+        scale_mat *= cs * cs_pb_inv
 
         convert_scale = op.convert_scale
         def transform_scale(s):
-            s = convert_scale(s)
-            s = Vector((s[perm[0]], s[perm[1]], s[perm[2]]))
-            return s * scale_factor
+            return mul(scale_mat, convert_scale(s))
 
     bone_name = bone_vnode.blender_name
     base_path = 'pose.bones[%s]' % quote(bone_name)
@@ -221,3 +217,25 @@ def bone_trs(op, anim_id, node_id, samplers):
     group = action.groups.new(bone_name)
     for fcurve in fcurves:
         fcurve.group = group
+
+
+def exchange_scale_rot_matrix(r):
+    """
+    Gives a matrix M, depending on quaternion r, with the property that
+
+        Scale[s] Rot[r] = Rot[r] Scale[Ms]
+
+    for all s.
+
+    In order for this to work, Rot[r] must be, up to sign, a permutation of the
+    basis vectors.
+    """
+    # M should be the matrix for the inverse of the permutation effected by
+    # Rot[r] I think.
+    m = r.to_matrix()
+    # Drop all signs; after this, M should be a permutation matrix
+    for i in range(0, 3):
+        for j in range(0, 3):
+            m[i][j] = 0 if abs(m[i][j]) < 0.5 else 1
+    m.transpose()
+    return m
