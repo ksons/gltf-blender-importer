@@ -137,32 +137,21 @@ def create_texture_block(mc, texture_type, info):
             (REPEAT, 'Texcoord REPEAT'),
             (MIRRORED_REPEAT, 'Texcoord MIRRORED_REPEAT'),
         ])
-        outputs = []
-        if wrap_s != CLAMP_TO_EDGE:
-            s_block = mc.adjoin({
+        block = mc.adjoin_split(
+            {
                 'node': 'Group',
                 'dim': (230, 100),
                 'group': gltf_to_blender_wrap[wrap_s],
-            })
-            mc.links.new(block.outputs[0], s_block.outputs[0].node.inputs[0])
-            outputs.append(s_block.outputs[0])
-        else:
-            s_block = Block.empty()
-            outputs.append(block.outputs[0])
-        if wrap_t != CLAMP_TO_EDGE:
-            t_block = mc.adjoin({
+                'input.0': block,
+            } if wrap_s != CLAMP_TO_EDGE else {},
+            {
                 'node': 'Group',
                 'dim': (230, 100),
                 'group': gltf_to_blender_wrap[wrap_t],
-            })
-            mc.links.new(block.outputs[1], t_block.outputs[0].node.inputs[0])
-            outputs.append(t_block.outputs[0])
-        else:
-            t_block = Block.empty()
-            outputs.append(block.outputs[1])
-        wrapped_block = Block.col_align_right([s_block, t_block])
-        block = Block.row_align_center([block, wrapped_block])
-        block.outputs = outputs
+                'output.1/input.0': block,
+            } if wrap_t != CLAMP_TO_EDGE else {},
+            block,
+        )
 
         # -> [combine XYZ]
         block = mc.adjoin({

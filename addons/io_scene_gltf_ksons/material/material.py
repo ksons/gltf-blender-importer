@@ -11,7 +11,7 @@ class Value:
 
 
 class MaterialCreator:
-    def adjoin(self, opts):
+    def new_node(self, opts):
         new_node = self.tree.nodes.new('ShaderNode' + opts['node'])
         new_node.width = 140
         new_node.height = 100
@@ -55,12 +55,42 @@ class MaterialCreator:
             elif key == 'dim':
                 new_node.width, new_node.height = val
 
-        input_block = Block.col_align_right(input_blocks)
+        return new_node, input_blocks
 
+    def adjoin(self, opts):
+        new_node, input_blocks = self.new_node(opts)
+
+        input_block = Block.col_align_right(input_blocks)
         block = Block.row_align_center([input_block, new_node])
         block.outputs = new_node.outputs
 
         return block
+
+    def adjoin_split(self, opts1, opts2, left_block):
+        if not opts1 and not opts2:
+            return left_block
+
+        outputs = []
+        if opts1:
+            block1, __input_blocks = self.new_node(opts1)
+            outputs.append(block1.outputs[0])
+        else:
+            block1 = Block.empty()
+            outputs.append(left_block.outputs[0])
+        if opts2:
+            block2, __input_blocks = self.new_node(opts2)
+            outputs.append(block2.outputs[0])
+        else:
+            block2 = Block.empty()
+            outputs.append(left_block.outputs[1])
+
+        split_block = Block.col_align_right([block1, block2])
+        block = Block.row_align_center([left_block, split_block])
+        block.outputs = outputs
+
+        return block
+
+
 
     def connect(self, connector, connector_key, node, socket_type, socket_key):
         if connector is None:
@@ -397,7 +427,7 @@ def create_metal_roughness(mc):
         block.outputs = [block.outputs['B'], block.outputs['G']]
 
     metal_factor = mc.pbr.get('metallicFactor', 1)
-    rough_factor = mc.pbr.get('roughFactor', 1)
+    rough_factor = mc.pbr.get('roughnessFactor', 1)
 
     if not block:
         return [
@@ -405,40 +435,26 @@ def create_metal_roughness(mc):
             Value(rough_factor, record_to='roughFactor'),
         ]
 
-    outputs = []
     if metal_factor != 1 or 'metallicFactor' in mc.liveness:
-        metal_factor_block = mc.adjoin({
+        metal_factor_options = {
             'node': 'Math',
             'prop.operation': 'MULTIPLY',
-            'input.0': Value(metal_factor, record_to='metallicFactor'),
-        })
-        mc.links.new(
-            block.outputs[0],
-            metal_factor_block.outputs[0].node.inputs[1],
-        )
-        outputs.append(metal_factor_block.outputs[0])
+            'output.0/input.0': block,
+            'input.1': Value(metal_factor, record_to='metallicFactor'),
+        }
     else:
-        metal_factor_block = Block.empty()
-        outputs.append(block.outputs[0])
+        metal_factor_options = {}
     if rough_factor != 1 or 'roughnessFactor' in mc.liveness:
-        rough_factor_block = mc.adjoin({
+        rough_factor_options = {
             'node': 'Math',
             'prop.operation': 'MULTIPLY',
-            'input.0': Value(rough_factor, record_to='roughnessFactor'),
-        })
-        mc.links.new(
-            block.outputs[1],
-            rough_factor_block.outputs[0].node.inputs[1],
-        )
-        outputs.append(rough_factor_block.outputs[0])
+            'output.1/input.0': block,
+            'input.1': Value(rough_factor, record_to='roughnessFactor'),
+        }
     else:
-        rough_factor_block = Block.empty()
-        outputs.append(block.outputs[1])
-    factor_block = Block.col_align_right([metal_factor_block, rough_factor_block])
-    block = Block.row_align_center([block, factor_block])
-    block.outputs = outputs
+        rough_factor_options = {}
 
-    return block
+    return mc.adjoin_split(metal_factor_options, rough_factor_options, block)
 
 
 def create_normal_block(mc):
