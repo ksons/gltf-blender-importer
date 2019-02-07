@@ -162,12 +162,16 @@ def create_material(op, idx):
     create_node_tree(mc)
 
     # Set the viewport alpha mode
-    # NOTE: since we use alpha to simulate backface culling, culling won't work
-    # for materials that are OPAQUE in the material view.
     alpha_mode = mc.material.get('alphaMode', 'OPAQUE')
+    double_sided = mc.material.get('doubleSided', False) or mc.op.options['always_doublesided']
+    if not double_sided and alpha_mode == 'OPAQUE':
+        # Since we use alpha to simulate backface culling
+        alpha_mode = 'MASK'
+
     if alpha_mode not in ['OPAQUE', 'MASK', 'BLEND']:
         print('unknown alpha mode %s' % alpha_mode)
         alpha_mode = 'OPAQUE'
+
     if getattr(bl_material, 'blend_method', None):
         bl_material.blend_method = {
             # glTF: Blender
@@ -182,7 +186,6 @@ def create_material(op, idx):
             'MASK': 'CLIP',
             'BLEND': 'ALPHA',
         }[alpha_mode]
-
 
     # Set diffuse/specular color (for solid view)
     if 'baseColorFactor' in mc.pbr:
@@ -275,19 +278,20 @@ def create_emissive(mc):
 
 def create_alpha_block(mc):
     alpha_mode = mc.material.get('alphaMode', 'OPAQUE')
+    double_sided = mc.material.get('doubleSided', False) or mc.op.options['always_doublesided']
 
     if alpha_mode not in ['OPAQUE', 'MASK', 'BLEND']:
         alpha_mode = 'OPAQUE'
 
-    if alpha_mode == 'OPAQUE':
-        return None
-
     # Create an empty block with the baseColor/diffuse texture's alpha
-    block = Block.empty(0, 0)
-    block.outputs = [mc.img_node.outputs[1]]
+    if alpha_mode != 'OPAQUE' and getattr(mc, 'img_node', None):
+        block = Block.empty(0, 0)
+        block.outputs = [mc.img_node.outputs[1]]
+    else:
+        block = None
 
     # Alpha cutoff in MASK mode
-    if alpha_mode == 'MASK':
+    if alpha_mode == 'MASK' and block:
         alpha_cutoff = mc.material.get('alphaCutoff', 0.5)
         block = mc.adjoin({
             'node': 'Math',
@@ -297,7 +301,7 @@ def create_alpha_block(mc):
         })
 
     # Handle doublesidedness
-    if not mc.material.get('doubleSided', False) and not mc.op.options['always_doublesided']:
+    if not double_sided:
         sided_block = mc.adjoin({
             'node': 'NewGeometry',
         })
@@ -307,21 +311,26 @@ def create_alpha_block(mc):
             'input.0': Value(1),
             'output.Backfacing/input.1': sided_block,
         })
-        block = mc.adjoin({
-            'node': 'Math',
-            'prop.operation': 'MULTIPLY',
-            'input.1': block,
-            'input.0': sided_block,
+        if block:
+            block = mc.adjoin({
+                'node': 'Math',
+                'prop.operation': 'MULTIPLY',
+                'input.1': block,
+                'input.0': sided_block,
+            })
+        else:
+            block = sided_block
+
+    if block:
+        transparent_block = mc.adjoin({
+            'node': 'BsdfTransparent',
         })
 
-    transparent_block = mc.adjoin({
-        'node': 'BsdfTransparent',
-    })
+        alpha_block = Block.col_align_right([block, transparent_block])
+        alpha_block.outputs = [block.outputs[0], transparent_block.outputs[0]]
+        block = alpha_block
 
-    alpha_block = Block.col_align_right([block, transparent_block])
-    alpha_block.outputs = [block.outputs[0], transparent_block.outputs[0]]
-
-    return alpha_block
+    return block
 
 
 def create_shaded(mc):
