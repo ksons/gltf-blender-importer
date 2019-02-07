@@ -1,8 +1,7 @@
 import json
 import bpy
-from . import block
+from .block import Block
 from .texture import create_texture_block
-Block = block.Block
 
 class Value:
     def __init__(self, value, record_to=''):
@@ -216,18 +215,24 @@ def create_node_tree(mc):
 
     alpha_block = create_alpha_block(mc)
     if alpha_block:
+        # Push things into a better position
+        # [block] ->               -> [mix]
+        #            [alpha block]
+        alpha_block.pad_top(600)
+        combined_block = Block.row_align_center([block, alpha_block])
+        combined_block.outputs = \
+            [block.outputs[0], alpha_block.outputs[0], alpha_block.outputs[1]]
         block = mc.adjoin({
             'node': 'MixShader',
-            'input.2': block,
-            'output.0/input.Fac': alpha_block,
-            'output.1/input.1': alpha_block,
+            'output.0/input.2': combined_block,
+            'output.1/input.Fac': combined_block,
+            'output.2/input.1': combined_block,
         })
 
     mc.adjoin({
         'node': 'OutputMaterial',
         'input.Surface': block,
-    })
-
+    }).center_at_origin()
 
 def create_emissive(mc):
     if mc.type == 'unlit':

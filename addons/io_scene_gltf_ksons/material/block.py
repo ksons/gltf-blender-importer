@@ -38,6 +38,15 @@ class Block:
         self.top_left += delta
         self.bottom_right += delta
 
+    def pad_top(self, padding):
+        self.top_left = Vector((
+            self.top_left[0],
+            self.top_left[1] + padding,
+        ))
+
+    def center_at_origin(self):
+        center_at_origin(self)
+
     @staticmethod
     # Creates an empty block (used for spacing purposes)
     def empty(width=100, height=140):
