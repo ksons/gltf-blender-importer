@@ -48,8 +48,10 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
     global_scale = FloatProperty(
         name='Global Scale',
-        description='Scales all locations by the given factor. Used to eg. change '
-        'units (glTF is in meters).',
+        description=(
+            'Scales all linear distances by the given factor. Use to change '
+            'units (glTF is in meters)'
+        ),
         default=1.0,
     )
     axis_conversion = EnumProperty(
@@ -58,21 +60,27 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             ('BLENDER_RIGHT', 'Blender Right (+Y)', ''),
         ],
         name='Up (+Y) to',
-        description="Choose whether to convert to Blender's axis convention or not.",
+        description=(
+            "Choose whether to convert coordinates to Blender's up-axis convention "
+            'or leave everything in the same order it is in the glTF'
+        ),
         default='BLENDER_UP',
     )
     smooth_polys = BoolProperty(
-        name='Enable polygon smoothing',
-        description='Enable smoothing for all polygons in imported meshes. Suggest '
-        'disabling for low-res models.',
+        name='Enable Polygon Smoothing',
+        description=(
+            'Enable smoothing for all polygons in imported meshes. Suggest '
+            'disabling for low-res models'
+        ),
         default=True,
     )
     split_meshes = BoolProperty(
-        name='Split meshes into primitives',
+        name='Split Meshes into Primitives',
         description=(
-            'A glTF mesh is made of multile primitives. When this is disabled, each '
-            'glTF meshes makes one Blender mesh. When it is enabled, each glTF primitive '
-            'makes one Blender mesh.'
+            'A glTF mesh is made of pieces called primitives. For example, each primitive '
+            'uses only one material. When this option is disabled, one glTF mesh makes '
+            'one Blender mesh. When it is enabled, each glTF primitive makes one Blender mesh. '
+            'Useful for examining the structure of glTF meshes'
         ),
         default=False,
     )
@@ -83,53 +91,62 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         ],
         name='Direction',
         description=(
-            'Adjusts which direction bones will point towards by rotating them so '
-            'their +Y axis points a different direction.'
+            'Adjusts which direction bones will point towards by applying a rotation '
+            'to each bone. Point-to-children uses a heuristic that tries to make bones '
+            'point nicely'
         ),
         default='POINT_TO_CHILDREN',
     )
     import_animations = BoolProperty(
         name='Import Animations',
-        description='',
+        description=(
+            'Whether to import animations. Look for them in the Action Editor. '
+            'One glTF animation is split up into multiple actions, depending on '
+            'which object it targets and whether it targets TRS/material/shape key '
+            'properties'
+        ),
         default=True,
     )
     framerate = FloatProperty(
         name='Frames/second',
         description=(
-            'Used for animation. The Blender frame corresponding to the glTF time is '
-            'computed as framerate * t. Negative values or zero mean to use the '
-            "current scene's framerate."
+            'The Blender animation frame corresponding to the glTF time is computed '
+            "as framerate * t. Negative values or zero mean to use the current scene's "
+            'framerate'
         ),
         default=0.0,
     )
     always_doublesided = BoolProperty(
-        name='Always double-sided',
+        name='Always Double-Sided',
         description=(
             'Make all materials double-sided, even if the glTF says they should be '
-            'single-sided (ie. says backfacing tris should be culled).'
+            'single-sided.\n'
+            'Single-sidedness (ie. backing culling enabled) is simulated in Blender '
+            'using alpha, which is a somewhat ugly hack'
         ),
         default=True,
     )
     import_into_current_scene = BoolProperty(
-        name='Import into current scene',
-        description='When enabled, all the objects will be placed in the current '
-        'scene and no scenes will be created.\n'
-        'When disabled, scenes will be created to match the ones in the '
-        'glTF file. Any object not in a scene will not be visible.',
+        name='Import into Current Scene',
+        description=(
+            'When enabled, all the objects will be placed in the current '
+            'scene and no scenes will be created.\n'
+            'When disabled, scenes will be created to match the ones in the '
+            'glTF file. Any object not in a scene will not be visible'
+        ),
         default=True,
     )
     add_root = BoolProperty(
-        name='Add root node',
+        name='Add Root Node',
         description=(
             'When enabled, everything in the glTF file will be placed under a new '
-            'root node with the name of the .gltf/.glb file.'
+            'root node with the name of the .gltf/.glb file'
         ),
         default=True,
     )
 
     def draw(self, context):
         layout = self.layout
-        keywords = self.as_keywords()
 
         col = layout.box().column()
         col.label(text='Units:', icon='EMPTY_DATA')
