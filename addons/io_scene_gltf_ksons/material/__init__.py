@@ -31,10 +31,9 @@ def create_material(op, idx):
     if 'KHR_materials_unlit' in mc.material.get('extensions', {}):
         mc.pbr = mc.material.get('pbrMetallicRoughness', {})
         mc.type = 'unlit'
-    # TODO: re-enable specular glossiness
-    #elif 'KHR_materials_pbrSpecularGlossiness' in mc.material.get('extensions', {}):
-    #    mc.pbr = mc.material['extensions']['KHR_materials_pbrSpecularGlossiness']
-    #    mc.type = 'specGloss'
+    elif 'KHR_materials_pbrSpecularGlossiness' in mc.material.get('extensions', {}):
+        mc.pbr = mc.material['extensions']['KHR_materials_pbrSpecularGlossiness']
+        mc.type = 'specGloss'
     else:
         mc.pbr = mc.material.get('pbrMetallicRoughness', {})
         mc.type = 'metalRough'
@@ -80,7 +79,7 @@ def create_material(op, idx):
         diffuse_color = mc.pbr['baseColorFactor'][:len(bl_material.diffuse_color)]
         bl_material.diffuse_color = diffuse_color
     if 'diffuseFactor' in mc.pbr:
-        diffuse_color = mc.pbr['baseColorFactor'][:len(bl_material.diffuse_color)]
+        diffuse_color = mc.pbr['diffuseFactor'][:len(bl_material.diffuse_color)]
         bl_material.diffuse_color = diffuse_color
     if 'specularFactor' in mc.pbr:
         specular_color = mc.pbr['specularFactor'][:len(bl_material.specular_color)]
@@ -255,6 +254,31 @@ def create_metalRough_pbr(mc):
     return mc.adjoin(params)
 
 
+def create_specGloss_pbr(mc):
+    params = {
+        'node': 'Group',
+        'group': 'pbrSpecularGlossiness',
+        'dim': (200, 540),
+    }
+    # TODO: wait for Blender to stabilize some nice Principled node we can use
+    # here instead of this ugly Group node
+
+    diffuse_block = create_diffuse(mc)
+    if diffuse_block:
+        params['input.Diffuse'] = diffuse_block
+
+    spec_gloss_block = create_spec_gloss(mc)
+    if spec_gloss_block:
+        params['output.0/input.Specular'] = spec_gloss_block
+        params['output.1/input.Glossiness'] = spec_gloss_block
+
+    normal_block = create_normal_block(mc)
+    if normal_block:
+        params['input.Normal'] = normal_block
+
+    return mc.adjoin(params)
+
+
 def create_unlit(mc):
     params = {
         # TODO: pick a better node?
@@ -312,6 +336,50 @@ def create_base_color(mc):
     return block
 
 
+def create_diffuse(mc):
+    block = None
+    if 'diffuseTexture' in mc.pbr:
+        block = create_texture_block(
+            mc,
+            'diffuseTexture',
+            mc.pbr['diffuseTexture'],
+        )
+        block.img_node.label = 'DIFFUSE'
+        # Remember for alpha value
+        mc.img_node = block.img_node
+
+    for color_set_num in range(0, mc.op.material_infos[mc.idx].num_color_sets):
+        vert_color_block = mc.adjoin({
+            'node': 'Attribute',
+            'prop.attribute_name': 'COLOR_%d' % color_set_num,
+        })
+        if block:
+            block = mc.adjoin({
+                'node': 'MixRGB',
+                'prop.blend_type': 'MULTIPLY',
+                'input.Fac': Value(1),
+                'input.Color1': block,
+                'input.Color2': vert_color_block,
+            })
+        else:
+            block = vert_color_block
+
+    factor = mc.pbr.get('diffuseFactor', [1, 1, 1, 1])
+    if factor != [1, 1, 1, 1] or 'diffuseFactor' in mc.liveness:
+        if block:
+            block = mc.adjoin({
+                'node': 'MixRGB',
+                'prop.blend_type': 'MULTIPLY',
+                'input.Fac': Value(1),
+                'input.Color1': block,
+                'input.Color2': Value(factor, record_to='diffuseFactor'),
+            })
+        else:
+            block = Value(factor, record_to='diffuseFactor')
+
+    return block
+
+
 def create_metal_roughness(mc):
     block = None
     if 'metallicRoughnessTexture' in mc.pbr:
@@ -358,6 +426,48 @@ def create_metal_roughness(mc):
         rough_factor_options = {}
 
     return mc.adjoin_split(metal_factor_options, rough_factor_options, block)
+
+
+def create_spec_gloss(mc):
+    block = None
+    if 'specularGlossinessTexture' in mc.pbr:
+        block = create_texture_block(
+            mc,
+            'specularGlossinessTexture',
+            mc.pbr['specularGlossinessTexture'],
+        )
+        block.img_node.label = 'SPECULAR GLOSSINESS'
+
+    spec_factor = mc.pbr.get('specularFactor', [1, 1, 1]) + [1]
+    gloss_factor = mc.pbr.get('glossinessFactor', 1)
+
+    if not block:
+        return [
+            Value(spec_factor, record_to='specularFactor'),
+            Value(gloss_factor, record_to='glossinessFactor'),
+        ]
+
+    if spec_factor != [1, 1, 1, 1] or 'specularFactor' in mc.liveness:
+        spec_factor_options = {
+            'node': 'MixRGB',
+            'prop.operation': 'MULTIPLY',
+            'input.Fac': Value(1),
+            'output.Color/input.Color1': block,
+            'input.Color2': Value(spec_factor, record_to='specularFactor'),
+        }
+    else:
+        spec_factor_options = {}
+    if gloss_factor != 1 or 'glossinessFactor' in mc.liveness:
+        gloss_factor_options = {
+            'node': 'Math',
+            'prop.operation': 'MULTIPLY',
+            'output.Alpha/input.0': block,
+            'input.1': Value(gloss_factor, record_to='glossinessFactor'),
+        }
+    else:
+        gloss_factor_options = {}
+
+    return mc.adjoin_split(spec_factor_options, gloss_factor_options, block)
 
 
 def create_normal_block(mc):

@@ -10,7 +10,6 @@ gltf-blender-importer
 </p>
 
 ### Installation
-
 Click the "Download Add-on" button above to download the ZIP containing the
 add-on. In Blender, navigate to **File > User Preferences... > Add-ons** (or
 **Edit > User Preferences... > Add-ons**) and install that ZIP with the
@@ -25,7 +24,7 @@ You can now import glTFs with **File > Import > KSons' glTF 2.0 (.glb/.gltf)**.
 See [INSTALL.md](INSTALL.md) for further installation instructions.
 
 ### Supported Extensions
-* ~~KHR_materials_pbrSpecularGlossiness~~ (TODO)
+* KHR_materials_pbrSpecularGlossiness
 * KHR_lights_punctual
 * KHR_materials_unlit
 * KHR_texture_transform
@@ -38,5 +37,4 @@ See [INSTALL.md](INSTALL.md) for further installation instructions.
 ![Lantern](doc/lantern.png)
 
 ### See also
-
 Official Importer-Exporter: [glTF-Blender-IO](https://github.com/KhronosGroup/glTF-Blender-IO)
