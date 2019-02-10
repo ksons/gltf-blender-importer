@@ -10,7 +10,7 @@ gltf-blender-importer
 <p align=center>Un-official Blender importer for glTF 2.0.</p>
 
 <p align=center>
-<a href="https://github.com/ksons/gltf-blender-importer/releases/download/v0.4.0/io_scene_gltf-0.4.0.zip"><img src="./doc/download_button.png"></a>
+<a href="https://github.com/ksons/gltf-blender-importer/releases/download/v0.5.0/io_scene_gltf_ksons-0.5.0.zip"><img src="./doc/download_button.png"></a>
 </p>
 
 ### Installation

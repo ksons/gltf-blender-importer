@@ -10,7 +10,7 @@ bl_info = {
     'name': "KSons' glTF 2.0 Importer",
     'author': 'Kristian Sons (ksons), scurest',
     'blender': (2, 80, 0),
-    'version': (0, 4, 0),
+    'version': (0, 5, 0),
     'location': "File > Import > KSons' glTF 2.0 (.glb/.gltf)",
     'description': 'Importer for the glTF 2.0 file format.',
     'warning': '',
