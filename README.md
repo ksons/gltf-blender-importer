@@ -1,3 +1,7 @@
+<p align="center">
+<img src="doc/hero.png" alt="Fox model by PixelMannen, rigging by Tom Kranis">
+</p>
+
 <h2 align=center>
 gltf-blender-importer
 <a href="https://travis-ci.org/ksons/gltf-blender-importer"><img src="https://travis-ci.org/ksons/gltf-blender-importer.svg?branch=master" alt="Build status"/></a>
@@ -6,7 +10,7 @@ gltf-blender-importer
 <p align=center>Un-official Blender importer for glTF 2.0.</p>
 
 <p align=center>
-<a href="https://github.com/ksons/gltf-blender-importer/releases/download/v0.4.0/io_scene_gltf-0.4.0.zip"><img src="./doc/download_button.png"/></a>
+<a href="https://github.com/ksons/gltf-blender-importer/releases/download/v0.4.0/io_scene_gltf-0.4.0.zip"><img src="./doc/download_button.png"></a>
 </p>
 
 ### Installation
@@ -29,12 +33,15 @@ See [INSTALL.md](INSTALL.md) for further installation instructions.
 * KHR_materials_unlit
 * KHR_texture_transform
 * MSFT_texture_dds
-* EXT_property_animation (extension abandoned)
+* EXT_property_animation (extension abandoned upstream)
+
+### Unsupported Features
+* Inverse bind matrices are ignored
 
 ### Samples Renderings
-![BoomBox](doc/boom-box.png)
-![Corset](doc/corset.png)
-![Lantern](doc/lantern.png)
+![BoomBox](doc/boom-box.jpg)
+![Corset](doc/corset.jpg)
+![Lantern](doc/lantern.jpg)
 
 ### See also
 Official Importer-Exporter: [glTF-Blender-IO](https://github.com/KhronosGroup/glTF-Blender-IO)
