@@ -2,14 +2,24 @@ language: python
 python:
   "3.5"
 
+# From michaeldegroot/cats-blender-plugin
+before_install:
+  - sudo apt-get update -qq
+  # install blender from official sources.
+  # This will most propably install an outdated blender version,
+  # but it will resolve all system dependencies blender has to be able to run.
+  - sudo apt-get install blender
+
 install:
-  - sudo add-apt-repository -y ppa:thomas-schiex/blender
-  - sudo apt-get update
-  - sudo apt-get install -y --allow-unauthenticated blender
-  - blender --version
+  # Then update blender
+  - mkdir tmp && cd tmp
+  - wget http://mirror.cs.umn.edu/blender.org/release/Blender2.79/blender-2.79-linux-glibc219-x86_64.tar.bz2
+  - tar jxf blender-2.79-linux-glibc219-x86_64.tar.bz2
+  - mv blender-2.79-linux-glibc219-x86_64 blender
+  - cd ..
 
 script:
-  python test/test.py run
+  python test/test.py run --exe ./tmp/blender/blender
 
 #deploy:
 #  provider: pages

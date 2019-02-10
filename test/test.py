@@ -150,7 +150,7 @@ def cmd_report_times(args=None):
 
 
 p = argparse.ArgumentParser(description='glTF importer tests')
-subs = p.add_subparsers(title='subcommands', required=True)
+subs = p.add_subparsers(title='subcommands')
 
 run = subs.add_parser('run', help='Run tests and generate report')
 run.add_argument('--exe', default='blender', help='Blender executable')
