@@ -140,6 +140,12 @@ def add_primitive_to_bmesh(op, bme, primitive, material_index):
     bme_faces = bme.faces
 
     convert_coordinates = op.convert_translation
+    if op.options['axis_conversion'] == 'BLENDER_UP':
+        def convert_normal(n):
+            return Vector([n[0], -n[2], n[1]])
+    else:
+        def convert_normal(n):
+            return n
 
     # The primitive stores vertex attributes in arrays and gives indices into
     # those arrays
@@ -205,7 +211,7 @@ def add_primitive_to_bmesh(op, bme, primitive, material_index):
     if 'NORMAL' in attributes:
         normals = op.get('accessor', attributes['NORMAL'])
         for bidx, pidx in vert_idxs:
-            bme_verts[bidx].normal = convert_coordinates(normals[pidx])
+            bme_verts[bidx].normal = convert_normal(normals[pidx])
 
     # Set vertex colors. Add them in the order COLOR_0, COLOR_1, etc.
     set_num = 0
