@@ -43,6 +43,10 @@ def create_texture_block(mc, texture_type, info):
         rotation = t.get('rotation', 0)
         scale = t.get('scale', [1, 1])
 
+        # Rotation is counter-clockwise, but in glTF's UV space where Y is down,
+        # which makes it a clockwise rotation in normal terms
+        rotation = -rotation
+
         # [Texcoord] -> [gltf<->Blender]
         if not block:
             block = create_texcoord_block()

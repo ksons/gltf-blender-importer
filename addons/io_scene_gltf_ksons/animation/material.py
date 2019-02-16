@@ -44,7 +44,7 @@ def add_material_animation(op, anim_id, material_id, data):
         if 'rotation' in samplers:
             curve = Curve.for_sampler(op, samplers['rotation'])
             data_path = [(base_path + '.rotation', 2)]  # animate rotation around Z-axis
-            fcurves += curve.make_fcurves(op, action, data_path)
+            fcurves += curve.make_fcurves(op, action, data_path, transform=lambda theta:-theta)
 
         if 'scale' in samplers:
             curve = Curve.for_sampler(op, samplers['scale'])
