@@ -255,22 +255,34 @@ def create_metalRough_pbr(mc):
 
 
 def create_specGloss_pbr(mc):
-    params = {
-        'node': 'Group',
-        'group': 'pbrSpecularGlossiness',
-        'dim': (200, 540),
-    }
-    # TODO: wait for Blender to stabilize some nice Principled node we can use
-    # here instead of this ugly Group node
+    try:
+        bpy.context.scene.render.engine = 'BLENDER_EEVEE'
+        node = mc.tree.nodes.new('ShaderNodeEeveeSpecular')
+        mc.tree.nodes.remove(node)
+        has_specular_node = True
+    except Exception:
+        has_specular_node = False
+
+    if has_specular_node:
+        params = {
+            'node': 'EeveeSpecular',
+            'dim': (200, 540),
+        }
+    else:
+        params = {
+            'node': 'Group',
+            'group': 'pbrSpecularGlossiness',
+            'dim': (200, 540),
+        }
 
     diffuse_block = create_diffuse(mc)
     if diffuse_block:
-        params['input.Diffuse'] = diffuse_block
+        params['input.Base Color'] = diffuse_block
 
-    spec_gloss_block = create_spec_gloss(mc)
-    if spec_gloss_block:
-        params['output.0/input.Specular'] = spec_gloss_block
-        params['output.1/input.Glossiness'] = spec_gloss_block
+    spec_rough_block = create_spec_roughness(mc)
+    if spec_rough_block:
+        params['output.0/input.Specular'] = spec_rough_block
+        params['output.1/input.Roughness'] = spec_rough_block
 
     normal_block = create_normal_block(mc)
     if normal_block:
@@ -428,7 +440,7 @@ def create_metal_roughness(mc):
     return mc.adjoin_split(metal_factor_options, rough_factor_options, block)
 
 
-def create_spec_gloss(mc):
+def create_spec_roughness(mc):
     block = None
     if 'specularGlossinessTexture' in mc.pbr:
         block = create_texture_block(
@@ -467,7 +479,15 @@ def create_spec_gloss(mc):
     else:
         gloss_factor_options = {}
 
-    return mc.adjoin_split(spec_factor_options, gloss_factor_options, block)
+    block = mc.adjoin_split(spec_factor_options, gloss_factor_options, block)
+
+    # Convert glossiness to roughness
+    return mc.adjoin_split(None, {
+        'node': 'Math',
+        'prop.operation': 'SUBTRACT',
+        'input.0': Value(1.0),
+        'output.1/input.1': block,
+    }, block)
 
 
 def create_normal_block(mc):
