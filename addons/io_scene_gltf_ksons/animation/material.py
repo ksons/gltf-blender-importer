@@ -20,7 +20,10 @@ def add_material_animation(op, anim_info, material_id):
 
     for prop, sampler in data.get('properties', {}).items():
         curve = Curve.for_sampler(op, sampler)
-        data_path = op.material_infos[material_id].paths[prop]
+        data_path = op.material_infos[material_id].paths.get(prop)
+        if not data_path:
+            print('no place to put animated property %s in material node tree' % prop)
+            continue
         fcurves += curve.make_fcurves(op, action, data_path)
 
     if fcurves:
