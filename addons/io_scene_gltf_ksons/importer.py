@@ -20,9 +20,12 @@ class Importer:
 
         vnode.create_vtree(self)
         node.realize_vtree(self)
-        scene.create_blender_scenes(self)
+
         if self.options['import_animations']:
             animation.add_animations(self)
+
+        if self.options['import_scenes_as_collections']:
+            scene.import_scenes_as_collections(self)
 
     def get(self, kind, id):
         """

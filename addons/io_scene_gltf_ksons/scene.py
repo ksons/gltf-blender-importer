@@ -1,59 +1,48 @@
+import os
 import bpy
 
-if bpy.app.version >= (2, 80, 0):
-    def link_vnode_into_scene(vnode, scene):
-        if vnode.blender_object:
-            if vnode.blender_object.name not in scene.collection.objects:
-                scene.collection.objects.link(vnode.blender_object)
-else:
-    def link_vnode_into_scene(vnode, scene):
-        if vnode.blender_object:
-            try:
-                scene.objects.link(vnode.blender_object)
-            except Exception:
-                # Ignore exception if its already linked
-                pass
+
+def link_vnode_into_collection(vnode, collection):
+    if vnode.blender_object:
+        if vnode.blender_object.name not in collection.objects:
+            collection.objects.link(vnode.blender_object)
 
 
-def link_tree_into_scene(vnode, scene):
-    link_vnode_into_scene(vnode, scene)
+def link_tree_into_collection(vnode, collection):
+    link_vnode_into_collection(vnode, collection)
     for child in vnode.children:
-        link_tree_into_scene(child, scene)
+        link_tree_into_collection(child, collection)
 
 
-def link_ancestors_into_scene(vnode, scene):
-    while vnode:
-        link_vnode_into_scene(vnode, scene)
-        vnode = vnode.parent
-
-
-def create_blender_scenes(op):
-    if op.options['import_into_current_scene']:
-        # Link everything into the current scene
-        link_tree_into_scene(op.root_vnode, bpy.context.scene)
-        bpy.context.scene.render.engine = 'CYCLES'
+def import_scenes_as_collections(op):
+    if getattr(bpy.data, 'collections', None) is None:
+        print(
+            "Can't import scenes as collections; "
+            'no collections in this Blender version!'
+        )
         return
 
-    # Creates scenes to match the glTF scenes
-
-    default_scene_id = op.gltf.get('scene')
-
     scenes = op.gltf.get('scenes', [])
-    for i, scene in enumerate(scenes):
-        name = scene.get('name', 'scenes[%d]' % i)
-        blender_scene = bpy.data.scenes.new(name)
-        blender_scene.render.engine = 'CYCLES'
+    if not scenes:
+        return
 
-        roots = scene.get('nodes', [])
-        for node_id in roots:
-            vnode = op.node_id_to_vnode[node_id]
+    base_collection = bpy.data.collections.new(os.path.basename(op.filepath))
 
-            link_ancestors_into_scene(vnode, blender_scene)
-            link_tree_into_scene(vnode, blender_scene)
+    default_scene_idx = op.gltf.get('scene')
+    for scene_idx, scene in enumerate(op.gltf.get('scenes', [])):
+        name = scene.get('name', 'scenes[%d]' % scene_idx)
+        if scene_idx == default_scene_idx:
+            name += ' (Default)'
 
-            # Select this scene if it is the default
-            if i == default_scene_id:
-                if bpy.app.version >= (2, 80, 0):
-                    bpy.context.window.scene = blender_scene
-                else:
-                    bpy.context.screen.scene = blender_scene
+        collection = bpy.data.collections.new(name)
+        base_collection.children.link(collection)
+
+        for node_idx in scene['nodes']:
+            vnode = op.node_id_to_vnode[node_idx]
+
+            # A root node might not be a root vnode (eg. because we inserted an
+            # armature above it). Find the real root.
+            while vnode.parent is not None and vnode.parent.parent is not None:
+                vnode = vnode.parent
+
+            link_tree_into_collection(vnode, collection)

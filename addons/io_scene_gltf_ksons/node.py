@@ -85,6 +85,8 @@ def realize_vtree(op):
 
     pass2(op.root_vnode)
 
+    link_everything_into_scene(op)
+
 
 def realize_object(op, vnode):
     """Create a real Object for an OBJECT vnode."""
@@ -178,3 +180,33 @@ def realize_root(op, vnode):
 
     obj = bpy.data.objects.new(os.path.basename(op.filepath), None)
     vnode.blender_object = obj
+
+
+if bpy.app.version >= (2, 80, 0):
+    def link_vnode_into_scene(vnode, scene):
+        if vnode.blender_object:
+            if vnode.blender_object.name not in scene.collection.objects:
+                scene.collection.objects.link(vnode.blender_object)
+else:
+    def link_vnode_into_scene(vnode, scene):
+        if vnode.blender_object:
+            try:
+                scene.objects.link(vnode.blender_object)
+            except Exception:
+                # Ignore exception if its already linked
+                pass
+
+
+def link_tree_into_scene(vnode, scene):
+    link_vnode_into_scene(vnode, scene)
+    for child in vnode.children:
+        link_tree_into_scene(child, scene)
+
+
+def link_everything_into_scene(op):
+    link_tree_into_scene(op.root_vnode, bpy.context.scene)
+
+    # The renderer is also tied to the scene
+    if bpy.context.scene.render.engine == 'BLENDER_RENDER':
+        # Our materials won't work in BLENDER_RENDER
+        bpy.context.scene.render.engine = 'CYCLES'

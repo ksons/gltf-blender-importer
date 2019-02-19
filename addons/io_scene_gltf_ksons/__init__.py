@@ -123,16 +123,6 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
         ),
         default=True,
     )
-    import_into_current_scene = BoolProperty(
-        name='Import into Current Scene',
-        description=(
-            'When enabled, all the objects will be placed in the current '
-            'scene and no scenes will be created.\n'
-            'When disabled, scenes will be created to match the ones in the '
-            'glTF file. Any object not in a scene will not be visible'
-        ),
-        default=True,
-    )
     add_root = BoolProperty(
         name='Add Root Node',
         description=(
@@ -140,6 +130,15 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
             'root node with the name of the .gltf/.glb file'
         ),
         default=True,
+    )
+    import_scenes_as_collections = BoolProperty(
+        name='Import Scenes as Collections',
+        description=(
+            'When enabled, import glTF scenes as Blender collections (requires Blender '
+            '>= 2.8). When disabled, the glTF scenes are ignored.\n\n'
+            'Note that all objects are always placed in the current Blender scene'
+        ),
+        default=False,
     )
 
     def draw(self, context):
@@ -170,8 +169,8 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
 
         col = layout.box().column()
         col.label(text='Scene:', icon='SCENE_DATA')
-        col.prop(self, 'import_into_current_scene')
         col.prop(self, 'add_root')
+        col.prop(self, 'import_scenes_as_collections')
 
     def execute(self, context):
         imp = Importer(self.filepath, self.as_keywords())
