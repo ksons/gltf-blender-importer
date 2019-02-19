@@ -100,10 +100,7 @@ class ImportGLTF(bpy.types.Operator, ImportHelper):
     import_animations = BoolProperty(
         name='Import Animations',
         description=(
-            'Whether to import animations. Look for them in the Action Editor. '
-            'One glTF animation is split up into multiple actions, depending on '
-            'which object it targets and whether it targets TRS/material/shape key '
-            'properties'
+            'Whether to import animations. Look for them in the NLA editor'
         ),
         default=True,
     )

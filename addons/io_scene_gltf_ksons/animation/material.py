@@ -8,7 +8,6 @@ def add_material_animation(op, anim_info, material_id):
     data = anim_info.material[material_id]
     animation = op.gltf['animations'][anim_id]
     material = op.get('material', material_id)
-    node_tree = material.node_tree
 
     name = '%s@%s (Material)' % (
         animation.get('name', 'animations[%d]' % anim_id),
@@ -16,11 +15,6 @@ def add_material_animation(op, anim_info, material_id):
     )
     action = bpy.data.actions.new(name)
     anim_info.material_actions[material_id] = action
-    action.use_fake_user = True
-
-    # Play the first animation by default
-    if anim_id == 0:
-        node_tree.animation_data_create().action = action
 
     fcurves = []
 

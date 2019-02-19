@@ -28,11 +28,6 @@ def object_trs(op, anim_info, node_id):
     )
     action = bpy.data.actions.new(name)
     anim_info.trs_actions[blender_object.name] = action
-    action.use_fake_user = True
-
-    # Play the first animation by default
-    if animation_id == 0:
-        blender_object.animation_data_create().action = action
 
     if 'translation' in samplers:
         curve = Curve.for_sampler(op, samplers['translation'])
@@ -82,11 +77,6 @@ def bone_trs(op, anim_info, node_id):
         )
         action = bpy.data.actions.new(name)
         anim_info.trs_actions[armature_object.name] = action
-        action.use_fake_user = True
-
-        # Play the first animation by default
-        if anim_id == 0:
-            armature_object.animation_data_create().action = action
 
     action = anim_info.trs_actions[armature_object.name]
 

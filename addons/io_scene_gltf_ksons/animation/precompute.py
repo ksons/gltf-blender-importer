@@ -1,4 +1,5 @@
 import re
+import bpy
 
 class AnimationInfo:
     def __init__(self, anim_id):
@@ -17,14 +18,15 @@ class AnimationInfo:
         # material[material_idx]['texture_transform'][texture_type]['offset'/'rotation'/'scale']
         # is the sampler for texture transform values
         self.material = {}
+        # Duration of longest input sampler
+        self.duration = 0.0
 
         # trs_actions[object_blender_name] records the TRS action on that object.
         self.trs_actions = {}
         # trs_actions[object_blender_name] records the morph weight (shape key)
         # action on that object.
         self.morph_actions = {}
-        # material_actions[material_blender_name] records the action on that
-        # material.
+        # material_actions[material_id] records the action on that material.
         self.material_actions = {}
 
 
@@ -51,6 +53,14 @@ def gather_animation(op, anim_id):
 
     info = AnimationInfo(anim_id)
 
+    framerate = op.options['framerate']
+    if framerate <= 0:
+        framerate = bpy.context.scene.render.fps
+    def calc_duration(sampler):
+        acc = op.gltf['accessors'][sampler['input']]
+        max_time = framerate * acc['max'][0]
+        info.duration = max(info.duration, max_time)
+
     # Normal glTF channels
     channels = anim['channels']
     for channel in channels:
@@ -63,8 +73,10 @@ def gather_animation(op, anim_id):
 
         if path in ['translation', 'rotation', 'scale']:
             info.node_trs.setdefault(node_id, {})[path] = sampler
+            calc_duration(sampler)
         elif path == 'weights':
             info.morph_weight[node_id] = sampler
+            calc_duration(sampler)
         else:
             print('skipping animation curve, unknown path: %s' % path)
             continue
@@ -87,6 +99,7 @@ def gather_animation(op, anim_id):
         if match:
             node_id, path = match.groups()
             info.node_trs.setdefault(int(node_id), {})[path] = sampler
+            calc_duration(sampler)
             continue
 
         # Simple material properties
@@ -103,6 +116,7 @@ def gather_animation(op, anim_id):
                 .setdefault(int(material_id), {})
                 .setdefault('properties', {})
              )[prop] = sampler
+            calc_duration(sampler)
 
             # Record that this property is live (so don't skip it during material creation)
             op.material_infos[int(material_id)].liveness.add(prop)

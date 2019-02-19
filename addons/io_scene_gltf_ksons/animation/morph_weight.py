@@ -27,11 +27,6 @@ def add_morph_weight_animation(op, anim_info, node_id):
         action = bpy.data.actions.new(name)
         action.id_root = 'KEY'
         anim_info.morph_actions[blender_object.name] = action
-        action.use_fake_user = True
-
-        # Play the first animation by default
-        if anim_id == 0:
-            blender_object.data.shape_keys.animation_data_create().action = action
 
         # Find out the number of morph targets
         mesh_id = op.gltf['nodes'][node_id]['mesh']
