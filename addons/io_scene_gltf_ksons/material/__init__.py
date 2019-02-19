@@ -288,6 +288,11 @@ def create_specGloss_pbr(mc):
     if normal_block:
         params['input.Normal'] = normal_block
 
+    if has_specular_node:
+        occlusion_block = create_occlusion_block(mc)
+        if occlusion_block:
+            params['output.0/input.Ambient Occlusion'] = occlusion_block
+
     return mc.adjoin(params)
 
 
@@ -506,6 +511,35 @@ def create_normal_block(mc):
             'input.Strength': Value(mc.material['normalTexture'].get('scale', 1), record_to='normalTexture/scale'),
             'input.Color': tex_block,
         })
+    else:
+        return None
+
+
+def create_occlusion_block(mc):
+    if 'occlusionTexture' in mc.material:
+        block = create_texture_block(
+            mc,
+            'occlusionTexture',
+            mc.material['occlusionTexture'],
+        )
+        block.img_node.label = 'OCCLUSION'
+        block.img_node.color_space = 'NONE'
+
+        block = block = mc.adjoin({
+            'node': 'SeparateRGB',
+            'input.Image': block,
+        })
+
+        strength = mc.material['occlusionTexture'].get('strength', 1)
+        if strength != 1 or 'occlusionTexture/strength' in mc.liveness:
+            block = block = mc.adjoin({
+                'node': 'Math',
+                'prop.operation': 'MULTIPLY',
+                'input.0': block,
+                'input.1': Value(strength, record_to='occlusionTexture/strength'),
+            })
+
+        return block
     else:
         return None
 
