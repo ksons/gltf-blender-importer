@@ -3,7 +3,9 @@ from . import quote
 from .curve import Curve
 
 
-def add_material_animation(op, anim_id, material_id, data):
+def add_material_animation(op, anim_info, material_id):
+    anim_id = anim_info.anim_id
+    data = anim_info.material[material_id]
     animation = op.gltf['animations'][anim_id]
     material = op.get('material', material_id)
     node_tree = material.node_tree
@@ -13,6 +15,7 @@ def add_material_animation(op, anim_id, material_id, data):
         material.name,
     )
     action = bpy.data.actions.new(name)
+    anim_info.material_actions[material_id] = action
     action.use_fake_user = True
 
     # Play the first animation by default

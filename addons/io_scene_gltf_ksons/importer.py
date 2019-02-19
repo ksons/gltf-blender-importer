@@ -14,10 +14,9 @@ class Importer:
 
         load.load(self)
 
-        # Precomputations
         material.material_precomputation(self)
         if self.options['import_animations']:
-            animation.gather_animation_info(self)
+            animation.animation_precomputation(self)
 
         vnode.create_vtree(self)
         node.realize_vtree(self)

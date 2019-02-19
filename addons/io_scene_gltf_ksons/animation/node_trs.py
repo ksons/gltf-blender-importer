@@ -8,14 +8,17 @@ from ..compat import mul
 # either an object or a bone.
 
 
-def add_node_trs_animation(op, anim_id, node_id, samplers):
+def add_node_trs_animation(op, anim_info, node_id):
     if op.node_id_to_vnode[node_id].type == 'BONE':
-        bone_trs(op, anim_id, node_id, samplers)
+        bone_trs(op, anim_info, node_id)
     else:
-        object_trs(op, anim_id, node_id, samplers)
+        object_trs(op, anim_info, node_id)
 
 
-def object_trs(op, animation_id, node_id, samplers):
+def object_trs(op, anim_info, node_id):
+    animation_id = anim_info.anim_id
+    samplers = anim_info.node_trs[node_id]
+
     # Create action
     animation = op.gltf['animations'][animation_id]
     blender_object = op.node_id_to_vnode[node_id].blender_object
@@ -24,6 +27,7 @@ def object_trs(op, animation_id, node_id, samplers):
         blender_object.name,
     )
     action = bpy.data.actions.new(name)
+    anim_info.trs_actions[blender_object.name] = action
     action.use_fake_user = True
 
     # Play the first animation by default
@@ -62,29 +66,29 @@ def object_trs(op, animation_id, node_id, samplers):
             fcurve.group = group
 
 
-def bone_trs(op, anim_id, node_id, samplers):
+def bone_trs(op, anim_info, node_id):
+    anim_id = anim_info.anim_id
+    samplers = anim_info.node_trs[node_id]
+
     # Unlike an object, a bone doesn't get its own action; there is one action
-    # for the whole armature. To handle this, we store a cache of the action for
-    # each animation in the armature's vnode and create one when we first
-    # animate a bone in that armature.
+    # for the whole armature. Look it up or create it if it doesn't exist yet.
     bone_vnode = op.node_id_to_vnode[node_id]
     armature_vnode = bone_vnode.armature_vnode
-    action_cache = armature_vnode.armature_action_cache
-    if anim_id not in action_cache:
+    armature_object = armature_vnode.blender_object
+    if armature_object.name not in anim_info.trs_actions:
         name = '%s@%s' % (
             op.gltf['animations'][anim_id].get('name', 'animations[%d]' % anim_id),
             armature_vnode.blender_armature.name,
         )
         action = bpy.data.actions.new(name)
-        action_cache[anim_id] = action
+        anim_info.trs_actions[armature_object.name] = action
         action.use_fake_user = True
 
         # Play the first animation by default
         if anim_id == 0:
-            bl_object = armature_vnode.blender_object
-            bl_object.animation_data_create().action = action
+            armature_object.animation_data_create().action = action
 
-    action = action_cache[anim_id]
+    action = anim_info.trs_actions[armature_object.name]
 
     # In glTF, the ordinates of an animation curve say what the final position
     # of the node should be

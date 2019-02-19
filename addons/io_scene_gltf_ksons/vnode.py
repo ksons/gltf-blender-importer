@@ -51,9 +51,6 @@ class VNode:
         self.correction_rotation = Quaternion((1, 0, 0, 0))
         self.correction_homscale = 1
 
-        # Cache of actions that use an armature; used in importing animations
-        self.armature_action_cache = {}
-
 
 def create_vtree(op):
     initial_vtree(op)

@@ -5,7 +5,9 @@ from .curve import Curve
 # Morph Weight Animations
 
 
-def add_morph_weight_animation(op, anim_id, node_id, sampler):
+def add_morph_weight_animation(op, anim_info, node_id):
+    anim_id = anim_info.anim_id
+    sampler = anim_info.morph_weight[node_id]
     animation = op.gltf['animations'][anim_id]
 
     vnodes = find_mesh_instances(op.node_id_to_vnode[node_id])
@@ -24,6 +26,7 @@ def add_morph_weight_animation(op, anim_id, node_id, sampler):
         )
         action = bpy.data.actions.new(name)
         action.id_root = 'KEY'
+        anim_info.morph_actions[blender_object.name] = action
         action.use_fake_user = True
 
         # Play the first animation by default
