@@ -92,10 +92,15 @@ def mesh_name(op, mesh_spec):
 def bmesh_to_mesh(bme, me):
     bme.to_mesh(me)
 
+    # to_mesh ignores normals?
+    normals = [v.normal for v in bme.verts]
+    me.use_auto_smooth = True
+    me.normals_split_custom_set_from_vertices(normals)
+
     if len(bme.verts.layers.shape) != 0:
-        # The above does NOT create shape keys so if there's shape data we'll
-        # have to do it by hand. The only way I could find to create a shape key
-        # was to temporarily parent me to an object and use obj.shape_key_add.
+        # to_mesh does NOT create shape keys so if there's shape data we'll have
+        # to do it by hand. The only way I could find to create a shape key was
+        # to temporarily parent me to an object and use obj.shape_key_add.
         dummy_ob = None
         try:
             dummy_ob = bpy.data.objects.new('##dummy-object##', me)
