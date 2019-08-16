@@ -1,3 +1,5 @@
+## If you're looking for the official importer included with Blender, go [here](https://github.com/KhronosGroup/glTF-Blender-IO).
+
 <p align="center">
 <img src="doc/hero.png" alt="Fox model by PixelMannen, rigging by Tom Kranis">
 </p>
